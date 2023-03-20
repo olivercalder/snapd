@@ -70,6 +70,8 @@ const (
 	QuotaGroups
 	// RefreshAppAwarenessUX enables experimental UX improvements for refresh-app-awareness.
 	RefreshAppAwarenessUX
+	// Prompting enables apparmor prompting.
+	AppArmorPrompting
 
 	// lastFeature is the final known feature, it is only used for testing.
 	lastFeature
@@ -112,6 +114,8 @@ var featureNames = map[SnapdFeature]string{
 	QuotaGroups: "quota-groups",
 
 	RefreshAppAwarenessUX: "refresh-app-awareness-ux",
+
+	AppArmorPrompting: "apparmor-prompting",
 }
 
 // featuresEnabledWhenUnset contains a set of features that are enabled when not explicitly configured.
@@ -135,6 +139,8 @@ var featuresExported = map[SnapdFeature]bool{
 	MoveSnapHomeDir:               true,
 
 	RefreshAppAwarenessUX: true,
+
+	AppArmorPrompting: true,
 }
 
 // String returns the name of a snapd feature.
