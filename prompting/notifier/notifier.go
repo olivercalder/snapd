@@ -160,6 +160,7 @@ func (n *Notifier) waitAndRespond(req *Request, msg *notify.MsgNotificationFile)
 	resp := notify.ResponseForRequest(&msg.MsgNotification)
 	// XXX: should both error fields be zeroed?
 	resp.MsgNotification.Error = 0
+	resp.MsgNotification.NoCache = 1
 	if allow := <-req.YesNo; allow {
 		resp.Allow = msg.Allow | msg.Deny
 		resp.Deny = 0
