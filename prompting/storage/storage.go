@@ -3,9 +3,11 @@ package storage
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/snapcore/snapd/dirs"
 	"github.com/snapcore/snapd/logger"
@@ -40,18 +42,44 @@ const (
 	ExtrasDenyExtraPerms   ExtrasKey = "deny-extra-permissions"
 )
 
+type DecisionDuration string
+
+const (
+	DurationOnce    DecisionDuration = "once"
+	DurationSession DecisionDuration = "session"
+	DurationForever DecisionDuration = "forever"
+)
+
 type StoredDecision struct {
-	Id           string    `json:"id"`
-	Timestamp    string    `json:"last-modified"`
-	User         uint32    `json:"user"`
-	Snap         string    `json:"snap-name"`
-	App          string    `json:"app-name"`
-	Path         string    `json:"path"`
-	ResourceType string    `json:"resource-type"`
-	Allow        bool      `json:"allow"`
-	Duration     string    `json:"duration"`
-	Permissions  string    `json:"permissions"`
-	AllowType    AllowType `json:"allow-type"`
+	Id           string           `json:"id"`
+	Timestamp    string           `json:"last-modified"`
+	User         uint32           `json:"user"`
+	Snap         string           `json:"snap-name"`
+	App          string           `json:"app-name"`
+	Path         string           `json:"path"`
+	ResourceType string           `json:"resource-type"`
+	Allow        bool             `json:"allow"`
+	Duration     DecisionDuration `json:"duration"`
+	Permissions  []string         `json:"permissions"`
+	AllowType    AllowType        `json:"allow-type"`
+}
+
+func newStoredDecision(req *notifier.Request, path string, allow bool, which AllowType) *StoredDecision {
+	timestamp := fmt.Sprintf("%d", time.Now().UnixNano())
+	newDecision := StoredDecision{
+		Id:           timestamp,
+		Timestamp:    timestamp,
+		User:         req.SubjectUid,
+		Snap:         req.Snap,
+		App:          req.App,
+		Path:         path,
+		ResourceType: req.ResourceType,
+		Allow:        allow,
+		Duration:     DurationForever, // TODO: change this once duration included in request
+		Permissions:  make([]string, 0),
+		AllowType:    which,
+	}
+	return &newDecision
 }
 
 type permissionDB struct {

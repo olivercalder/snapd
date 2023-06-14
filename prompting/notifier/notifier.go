@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/snapcore/snapd/osutil/epoll"
 	"github.com/snapcore/snapd/prompting/apparmor"
@@ -36,6 +37,10 @@ type Request struct {
 	Pid uint32
 	// Label is the apparmor label on the process triggering the request.
 	Label string
+	// Snap is the name of the snap which triggered the request
+	Snap string
+	// App is the name of the app within the snap which triggered the request
+	App string
 	// SubjectUID is the UID of the subject that triggered the prompt
 	SubjectUid uint32
 
@@ -43,8 +48,10 @@ type Request struct {
 	// triggered the prompt) and (maybe) OUID (seems to be the uid
 	// of the filesystem object)
 
-	// Path is the path of the file, as seen by the process triggering the request.
+	// Path is the path of the resource, as seen by the process triggering the request.
 	Path string
+	// ResourceType is the type of the resource for which access is being requested.
+	ResourceType string
 	// Permission is the opaque permission that is being requested.
 	Permission interface{}
 	// YesNo is a channel for writing the response.
@@ -53,17 +60,26 @@ type Request struct {
 
 func newRequest(n *Notifier, msg *apparmor.MsgNotificationFile) *Request {
 	var perm interface{}
+	var resourceType string
 	if msg.Class == apparmor.MediationClassFile {
 		_, deny, _ := msg.DecodeFilePermissions()
 		perm = deny
+		resourceType = "file"
 	}
+	labelComponents := strings.Split(msg.Label, ".")
+	snap := labelComponents[1]
+	app := labelComponents[2]
 	return &Request{
 		n: n,
 
 		Pid:        msg.Pid,
 		Label:      msg.Label,
-		Path:       msg.Name,
+		Snap:       snap,
+		App:        app,
 		SubjectUid: msg.SUID,
+
+		Path:         msg.Name,
+		ResourceType: resourceType,
 
 		Permission: perm,
 
