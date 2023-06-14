@@ -40,6 +40,20 @@ const (
 	ExtrasDenyExtraPerms   ExtrasKey = "deny-extra-permissions"
 )
 
+type StoredDecision struct {
+	Id           string    `json:"id"`
+	Timestamp    string    `json:"last-modified"`
+	User         uint32    `json:"user"`
+	Snap         string    `json:"snap-name"`
+	App          string    `json:"app-name"`
+	Path         string    `json:"path"`
+	ResourceType string    `json:"resource-type"`
+	Allow        bool      `json:"allow"`
+	Duration     string    `json:"duration"`
+	Permissions  string    `json:"permissions"`
+	AllowType    AllowType `json:"allow-type"`
+}
+
 type permissionDB struct {
 	// must match the AllowType definitions above
 	Allow            map[string]bool `json:"allow"`
@@ -57,12 +71,16 @@ type userDB struct {
 
 // TODO: make this an interface
 type PromptsDB struct {
-	PerUser map[uint32]*userDB `json:"per-user"`
+	PerUser map[uint32]*userDB         `json:"per-user"`
+	ById    map[string]*StoredDecision `json:"by-id"`
 }
 
 // TODO: take a dir as argument to store prompt decisions
 func New() *PromptsDB {
-	pd := &PromptsDB{PerUser: make(map[uint32]*userDB)}
+	pd := &PromptsDB{
+		PerUser: make(map[uint32]*userDB),
+		ById:    make(map[string]*StoredDecision),
+	}
 	// TODO: error handling
 	pd.load()
 	return pd
