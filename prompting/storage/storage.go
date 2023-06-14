@@ -89,12 +89,16 @@ type permissionDB struct {
 	AllowWithSubdirs map[string]bool `json:"allow-with-subdirs"`
 }
 
-type labelDB struct {
+type appDB struct {
 	PerPermissionDB map[string]*permissionDB `json:"per-permission-db"`
 }
 
+type snapDB struct {
+	PerApp map[string]*appDB `json:"per-app"`
+}
+
 type userDB struct {
-	PerLabel map[string]*labelDB `json:"per-label"`
+	PerSnap map[string]*snapDB `json:"per-snap"`
 }
 
 // TODO: make this an interface
@@ -171,28 +175,35 @@ outside:
 	return false, ErrNoSavedDecision, "", ""
 }
 
-// TODO: unexport, possibly reintegrate into MapsForUidAndLabelAndPermission
-func (pd *PromptsDB) PermissionMapForUidAndLabel(uid uint32, label string) map[string]*permissionDB {
+// TODO: unexport, possibly reintegrate into MapsForUidAndSnapAndAppAndPermission
+func (pd *PromptsDB) PermissionMapForUidAndSnapAndApp(uid uint32, snap string, app string) map[string]*permissionDB {
 	userEntries := pd.PerUser[uid]
 	if userEntries == nil {
 		userEntries = &userDB{
-			PerLabel: make(map[string]*labelDB),
+			PerSnap: make(map[string]*snapDB),
 		}
 		pd.PerUser[uid] = userEntries
 	}
-	labelEntries := userEntries.PerLabel[label]
-	if labelEntries == nil {
-		labelEntries = &labelDB{
+	snapEntries := userEntries.PerSnap[snap]
+	if snapEntries == nil {
+		snapEntries = &snapDB{
+			PerApp: make(map[string]*appDB),
+		}
+		userEntries.PerSnap[snap] = snapEntries
+	}
+	appEntries := snapEntries.PerApp[app]
+	if appEntries == nil {
+		appEntries = &appDB{
 			PerPermissionDB: make(map[string]*permissionDB),
 		}
-		userEntries.PerLabel[label] = labelEntries
+		snapEntries.PerApp[app] = appEntries
 	}
-	return labelEntries.PerPermissionDB
+	return appEntries.PerPermissionDB
 }
 
 // TODO: unexport
-func (pd *PromptsDB) MapsForUidAndLabelAndPermission(uid uint32, label string, permission string) *permissionDB {
-	permissionMap := pd.PermissionMapForUidAndLabel(uid, label)
+func (pd *PromptsDB) MapsForUidAndSnapAndAppAndPermission(uid uint32, snap string, app string, permission string) *permissionDB {
+	permissionMap := pd.PermissionMapForUidAndSnapAndApp(uid, snap, app)
 	permissionEntries := permissionMap[permission]
 	if permissionEntries == nil {
 		permissionEntries = &permissionDB{
@@ -440,7 +451,7 @@ func (pd *PromptsDB) Set(req *notifier.Request, allow bool, extras map[ExtrasKey
 	noChange := true
 
 	for _, permission := range permissions {
-		permissionEntries := pd.MapsForUidAndLabelAndPermission(req.SubjectUid, req.Label, permission)
+		permissionEntries := pd.MapsForUidAndSnapAndAppAndPermission(req.SubjectUid, req.Snap, req.App, permission)
 
 		skipNewDecision, err := newDecisionImpliedByPreviousDecision(permissionEntries, which, path, allow)
 		if err != nil {
@@ -473,7 +484,7 @@ func (pd *PromptsDB) Get(req *notifier.Request) (bool, error) {
 		return false, ErrNoPermissions
 	}
 	for _, permission := range permissions {
-		permissionEntries := pd.MapsForUidAndLabelAndPermission(req.SubjectUid, req.Label, permission)
+		permissionEntries := pd.MapsForUidAndSnapAndAppAndPermission(req.SubjectUid, req.Snap, req.App, permission)
 		allow, err, _, _ := findPathInPermissionDB(permissionEntries, req.Path)
 		allAllow = allAllow && allow
 		if err != nil {

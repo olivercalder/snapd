@@ -29,6 +29,8 @@ func (s *storageSuite) TestSimple(c *C) {
 
 	req := &notifier.Request{
 		Label:      "snap.lxd.lxd",
+		Snap:       "lxd",
+		App:        "lxd",
 		SubjectUid: 1000,
 		Path:       "/home/test/foo/",
 		Permission: apparmor.MayReadPermission,
@@ -45,7 +47,7 @@ func (s *storageSuite) TestSimple(c *C) {
 	_, err = st.Set(req, allow, extras)
 	c.Assert(err, IsNil)
 
-	paths := st.MapsForUidAndLabelAndPermission(1000, "snap.lxd.lxd", "read").AllowWithSubdirs
+	paths := st.MapsForUidAndSnapAndAppAndPermission(req.SubjectUid, req.Snap, req.App, "read").AllowWithSubdirs
 	c.Assert(paths, HasLen, 1)
 
 	allowed, err = st.Get(req)
@@ -70,6 +72,8 @@ func (s *storageSuite) TestSubdirOverrides(c *C) {
 
 	req := &notifier.Request{
 		Label:      "snap.lxd.lxd",
+		Snap:       "lxd",
+		App:        "lxd",
 		SubjectUid: 1000,
 		Path:       "/home/test/foo/",
 		Permission: apparmor.MayReadPermission,
@@ -91,7 +95,7 @@ func (s *storageSuite) TestSubdirOverrides(c *C) {
 	_, err = st.Set(req, !allow, extras)
 	c.Assert(err, IsNil)
 	// more nested path was added
-	paths := st.MapsForUidAndLabelAndPermission(1000, "snap.lxd.lxd", "read").AllowWithSubdirs
+	paths := st.MapsForUidAndSnapAndAppAndPermission(req.SubjectUid, req.Snap, req.App, "read").AllowWithSubdirs
 	c.Assert(paths, HasLen, 2)
 
 	// and check more nested path is not allowed
@@ -339,12 +343,14 @@ func (s *storageSuite) TestGetMatches(c *C) {
 
 	req := &notifier.Request{
 		Label:      "snap.lxd.lxd",
+		Snap:       "lxd",
+		App:        "lxd",
 		SubjectUid: 1000,
 		Path:       "placeholder",
 		Permission: apparmor.MayReadPermission,
 	}
 
-	permissionEntries := st.MapsForUidAndLabelAndPermission(req.SubjectUid, req.Label, "read")
+	permissionEntries := st.MapsForUidAndSnapAndAppAndPermission(req.SubjectUid, req.Snap, req.App, "read")
 
 	for i, testCase := range cases {
 		permissionEntries.Allow = cloneAllowMap(testCase.allow)
@@ -434,12 +440,14 @@ func (s *storageSuite) TestGetErrors(c *C) {
 
 	req := &notifier.Request{
 		Label:      "snap.lxd.lxd",
+		Snap:       "lxd",
+		App:        "lxd",
 		SubjectUid: 1000,
 		Path:       "placeholder",
 		Permission: apparmor.MayReadPermission,
 	}
 
-	permissionEntries := st.MapsForUidAndLabelAndPermission(req.SubjectUid, req.Label, "read")
+	permissionEntries := st.MapsForUidAndSnapAndAppAndPermission(req.SubjectUid, req.Snap, req.App, "read")
 
 	for i, testCase := range cases {
 		permissionEntries.Allow = cloneAllowMap(testCase.allow)
@@ -994,12 +1002,14 @@ func (s *storageSuite) TestSetBehaviorWithMatches(c *C) {
 
 	req := &notifier.Request{
 		Label:      "snap.lxd.lxd",
+		Snap:       "lxd",
+		App:        "lxd",
 		SubjectUid: 1000,
 		Path:       "placeholder",
 		Permission: apparmor.MayReadPermission,
 	}
 
-	permissionEntries := st.MapsForUidAndLabelAndPermission(req.SubjectUid, req.Label, "read")
+	permissionEntries := st.MapsForUidAndSnapAndAppAndPermission(req.SubjectUid, req.Snap, req.App, "read")
 
 	for i, testCase := range cases {
 		permissionEntries.Allow = cloneAllowMap(testCase.initialAllow)
@@ -1144,12 +1154,14 @@ func (s *storageSuite) TestSetDecisionPruning(c *C) {
 
 	req := &notifier.Request{
 		Label:      "snap.lxd.lxd",
+		Snap:       "lxd",
+		App:        "lxd",
 		SubjectUid: 1000,
 		Path:       "placeholder",
 		Permission: apparmor.MayReadPermission,
 	}
 
-	permissionEntries := st.MapsForUidAndLabelAndPermission(req.SubjectUid, req.Label, "read")
+	permissionEntries := st.MapsForUidAndSnapAndAppAndPermission(req.SubjectUid, req.Snap, req.App, "read")
 
 	for i, testCase := range cases {
 		permissionEntries.Allow = cloneAllowMap(testCase.initialAllow)
@@ -1236,6 +1248,8 @@ func (s *storageSuite) TestPermissionsSimple(c *C) {
 
 	req := &notifier.Request{
 		Label:      "snap.lxd.lxd",
+		Snap:       "lxd",
+		App:        "lxd",
 		SubjectUid: 1000,
 		Path:       "/home/test/foo/",
 		Permission: apparmor.MayReadPermission,
@@ -1301,11 +1315,11 @@ func (s *storageSuite) TestPermissionsSimple(c *C) {
 	c.Assert(allowed, Equals, true)
 
 	// check that there are 2 rules for read but the write rule was coalesced
-	paths := st.MapsForUidAndLabelAndPermission(1000, "snap.lxd.lxd", "read").AllowWithSubdirs
+	paths := st.MapsForUidAndSnapAndAppAndPermission(req.SubjectUid, req.Snap, req.App, "read").AllowWithSubdirs
 	c.Assert(paths, HasLen, 2)
-	paths = st.MapsForUidAndLabelAndPermission(1000, "snap.lxd.lxd", "write").AllowWithSubdirs
+	paths = st.MapsForUidAndSnapAndAppAndPermission(req.SubjectUid, req.Snap, req.App, "write").AllowWithSubdirs
 	c.Assert(paths, HasLen, 1)
-	paths = st.MapsForUidAndLabelAndPermission(1000, "snap.lxd.lxd", "execute").AllowWithSubdirs
+	paths = st.MapsForUidAndSnapAndAppAndPermission(req.SubjectUid, req.Snap, req.App, "execute").AllowWithSubdirs
 	c.Assert(paths, HasLen, 1)
 }
 
@@ -1314,6 +1328,8 @@ func (s *storageSuite) TestPermissionsComplex(c *C) {
 
 	req := &notifier.Request{
 		Label:      "snap.lxd.lxd",
+		Snap:       "lxd",
+		App:        "lxd",
 		SubjectUid: 1000,
 	}
 	extras := map[storage.ExtrasKey]string{}
@@ -1437,6 +1453,8 @@ func (s *storageSuite) TestPermissionsComplex(c *C) {
 func (s *storageSuite) TestWhichPermissions(c *C) {
 	req := &notifier.Request{
 		Label:      "snap.lxd.lxd",
+		Snap:       "lxd",
+		App:        "lxd",
 		SubjectUid: 1000,
 		Path:       "/home/test/foo",
 		Permission: apparmor.MayReadPermission,
@@ -1464,6 +1482,8 @@ func (s *storageSuite) TestGetDoesNotCorruptPath(c *C) {
 
 	req := &notifier.Request{
 		Label:      "snap.lxd.lxd",
+		Snap:       "lxd",
+		App:        "lxd",
 		SubjectUid: 1000,
 		Path:       "/home/test/foo/",
 		Permission: apparmor.MayReadPermission,
@@ -1484,6 +1504,8 @@ func (s *storageSuite) TestLoadSave(c *C) {
 
 	req := &notifier.Request{
 		Label:      "snap.lxd.lxd",
+		Snap:       "lxd",
+		App:        "lxd",
 		SubjectUid: 1000,
 		Path:       "/home/test/foo",
 		Permission: apparmor.MayReadPermission,
