@@ -139,8 +139,31 @@ func indexOfStringInSlice(str string, slice []string) int {
 	return -1
 }
 
+func (pd *PromptsDB) decisionIdDeepCopy(id string) (*StoredDecision, error) {
+	oldDecision, exists := pd.ById[id]
+	if !exists {
+		return nil, ErrNoSavedDecision
+	}
+	newDecision := StoredDecision{
+		Id:           oldDecision.Id,
+		Timestamp:    oldDecision.Timestamp,
+		User:         oldDecision.User,
+		Snap:         oldDecision.Snap,
+		App:          oldDecision.App,
+		Path:         oldDecision.Path,
+		ResourceType: oldDecision.ResourceType,
+		Allow:        oldDecision.Allow,
+		Duration:     oldDecision.Duration,
+		Permissions:  make([]string, len(oldDecision.Permissions)),
+		AllowType:    oldDecision.AllowType,
+	}
+	copy(newDecision.Permissions, oldDecision.Permissions)
+	return &newDecision, nil
+}
+
 // Removes the given permission from the decision stored in ById with the
-// given ID.
+// given ID.  If the given permission is the final permission for the
+// decision with the given ID, then remove the decision from ById.
 func (pd *PromptsDB) decisionIdRemovePermission(id string, permission string, timestamp string) (bool, error) {
 	// Returns:
 	// bool: removed the final permission, so the decision was deleted
@@ -177,7 +200,8 @@ func (pd *PromptsDB) decisionIdAddPermission(id string, permission string, times
 	return nil
 }
 
-func (pd *PromptsDB) findPathInPermissionDB(db *permissionDB, path string) (string, error) {
+// TODO: unexport
+func (pd *PromptsDB) FindPathInPermissionDB(db *permissionDB, path string) (string, error) {
 	// Returns:
 	// string: id
 	// error: (nil | ErrMultipleDecisions | ErrNoSavedDecision)
@@ -337,7 +361,7 @@ func WhichPermissions(req *notifier.Request, allow bool, extras map[ExtrasKey]st
 // which, the given path, and the decision given by allow, is already implied
 // by previous rules in the decision maps given by permissionEntries
 func (pd *PromptsDB) newDecisionImpliedByPreviousDecision(permissionEntries *permissionDB, which AllowType, path string, allow bool) (bool, error) {
-	id, err := pd.findPathInPermissionDB(permissionEntries, path)
+	id, err := pd.FindPathInPermissionDB(permissionEntries, path)
 	if err != nil {
 		if err == ErrNoSavedDecision {
 			return false, nil
@@ -415,40 +439,50 @@ func FindDescendantsInMap(path string, allowMap map[string]string) map[string]st
 	return matches
 }
 
+// Gets the corresponding decision ID for the given path if it exists in the
+// given allowMap.  If so, removes it from the map, creates a deep copy of
+// the original state of the corresponding decision, and then removes the
+// given permission from the decision with that ID stored in the DB.  Stores
+// the deep copy of the original decision state in the given modifiedDeleted
+// map and returns it, along with any error which occurred.
+func (pd *PromptsDB) removePathFromMapIfExists(path string, allowMap map[string]string, permission string, modifiedDeleted map[string]*StoredDecision, timestamp string) (map[string]*StoredDecision, error) {
+	if id, exists := allowMap[path]; exists {
+		delete(allowMap, path)
+		initialDecisionState, err := pd.decisionIdDeepCopy(id)
+		if err != nil {
+			return modifiedDeleted, err
+		}
+		_, err = pd.decisionIdRemovePermission(id, permission, timestamp)
+		if err != nil {
+			return modifiedDeleted, err
+		}
+		if _, exists := modifiedDeleted[id]; !exists {
+			modifiedDeleted[id] = initialDecisionState
+		}
+	}
+	return modifiedDeleted, nil
+}
+
 // Insert a new decision into the given permissionEntries and remove all
 // previous decisions which are are more specific than the new decision.
-// Returns a bool for whether the new decision was added, a list of modified
-// decisions, a list of deleted decisions, and any error which occurs.
-func (pd *PromptsDB) insertAndPrune(permissionEntries *permissionDB, decision *StoredDecision, permission string, timestamp string) (bool, map[string]bool, error) {
+// Returns a bool for whether the new decision was added, a map of changed
+// decision IDs to the original state of those decisions before modification,
+// and any error which occurs.
+func (pd *PromptsDB) insertAndPrune(permissionEntries *permissionDB, decision *StoredDecision, permission string, timestamp string) (bool, map[string]*StoredDecision, error) {
 	added := false
-	modifiedDeleted := make(map[string]bool) // store false if modified, true if deleted
+	modifiedDeleted := make(map[string]*StoredDecision)
+	var err error
+
 	newId := decision.Id
 	path := decision.Path
 	allow := decision.Allow
 	which := decision.AllowType
-	if oldId, exists := permissionEntries.Allow[path]; exists {
-		delete(permissionEntries.Allow, path)
-		deletedLastPerm, err := pd.decisionIdRemovePermission(oldId, permission, timestamp)
+
+	for _, allowMap := range []map[string]string{permissionEntries.Allow, permissionEntries.AllowWithDir, permissionEntries.AllowWithSubdirs} {
+		modifiedDeleted, err = pd.removePathFromMapIfExists(path, allowMap, permission, modifiedDeleted, timestamp)
 		if err != nil {
 			return added, modifiedDeleted, err
 		}
-		modifiedDeleted[oldId] = deletedLastPerm || modifiedDeleted[oldId]
-	}
-	if oldId, exists := permissionEntries.AllowWithDir[path]; exists {
-		delete(permissionEntries.AllowWithDir, path)
-		deletedLastPerm, err := pd.decisionIdRemovePermission(oldId, permission, timestamp)
-		if err != nil {
-			return added, modifiedDeleted, err
-		}
-		modifiedDeleted[oldId] = deletedLastPerm || modifiedDeleted[oldId]
-	}
-	if oldId, exists := permissionEntries.AllowWithSubdirs[path]; exists {
-		delete(permissionEntries.AllowWithSubdirs, path)
-		deletedLastPerm, err := pd.decisionIdRemovePermission(oldId, permission, timestamp)
-		if err != nil {
-			return added, modifiedDeleted, err
-		}
-		modifiedDeleted[oldId] = deletedLastPerm || modifiedDeleted[oldId]
 	}
 
 	// check if new decision is now implied by an existing one (since removing
@@ -468,13 +502,8 @@ func (pd *PromptsDB) insertAndPrune(permissionEntries *permissionDB, decision *S
 		// delete direct match from other maps -- done above
 		// delete direct children from Allow map
 		toDeleteAllow := FindChildrenInMap(path, permissionEntries.Allow)
-		for p, oldId := range toDeleteAllow {
-			delete(permissionEntries.Allow, p)
-			deletedLastPerm, err := pd.decisionIdRemovePermission(oldId, permission, timestamp)
-			if err != nil {
-				return added, modifiedDeleted, err
-			}
-			modifiedDeleted[oldId] = deletedLastPerm || modifiedDeleted[oldId]
+		for p := range toDeleteAllow {
+			modifiedDeleted, err = pd.removePathFromMapIfExists(p, permissionEntries.Allow, permission, modifiedDeleted, timestamp)
 		}
 		if !skipNewDecision {
 			permissionEntries.AllowWithDir[path] = newId
@@ -483,31 +512,25 @@ func (pd *PromptsDB) insertAndPrune(permissionEntries *permissionDB, decision *S
 		// delete direct match from other maps -- done above
 		// delete descendants from all other maps
 		toDeleteAllow := FindDescendantsInMap(path, permissionEntries.Allow)
-		for p, oldId := range toDeleteAllow {
-			delete(permissionEntries.Allow, p)
-			deletedLastPerm, err := pd.decisionIdRemovePermission(oldId, permission, timestamp)
+		for p := range toDeleteAllow {
+			modifiedDeleted, err = pd.removePathFromMapIfExists(p, permissionEntries.Allow, permission, modifiedDeleted, timestamp)
 			if err != nil {
 				return added, modifiedDeleted, err
 			}
-			modifiedDeleted[oldId] = deletedLastPerm || modifiedDeleted[oldId]
 		}
 		toDeleteAllowWithDir := FindDescendantsInMap(path, permissionEntries.AllowWithDir)
-		for p, oldId := range toDeleteAllowWithDir {
-			delete(permissionEntries.AllowWithDir, p)
-			deletedLastPerm, err := pd.decisionIdRemovePermission(oldId, permission, timestamp)
+		for p := range toDeleteAllowWithDir {
+			modifiedDeleted, err = pd.removePathFromMapIfExists(p, permissionEntries.AllowWithDir, permission, modifiedDeleted, timestamp)
 			if err != nil {
 				return added, modifiedDeleted, err
 			}
-			modifiedDeleted[oldId] = deletedLastPerm || modifiedDeleted[oldId]
 		}
 		toDeleteAllowWithSubdirs := FindDescendantsInMap(path, permissionEntries.AllowWithSubdirs)
-		for p, oldId := range toDeleteAllowWithSubdirs {
-			delete(permissionEntries.AllowWithSubdirs, p)
-			deletedLastPerm, err := pd.decisionIdRemovePermission(oldId, permission, timestamp)
+		for p := range toDeleteAllowWithSubdirs {
+			modifiedDeleted, err = pd.removePathFromMapIfExists(p, permissionEntries.AllowWithSubdirs, permission, modifiedDeleted, timestamp)
 			if err != nil {
 				return added, modifiedDeleted, err
 			}
-			modifiedDeleted[oldId] = deletedLastPerm || modifiedDeleted[oldId]
 		}
 		if !skipNewDecision {
 			permissionEntries.AllowWithSubdirs[path] = newId
@@ -546,32 +569,32 @@ func removeDecisionFromPermissionsMap(decision *StoredDecision, permissionsMap m
 	return nil
 }
 
-func extractModifiedDeleted(modifiedDeleted map[string]bool) ([]string, []string) {
-	var modified []string
-	var deleted []string
-	for id, wasDeleted := range modifiedDeleted {
-		if wasDeleted {
-			deleted = append(deleted, id)
+func (pd *PromptsDB) extractModifiedDeleted(modifiedDeleted map[string]*StoredDecision) ([]*StoredDecision, []*StoredDecision) {
+	var modified []*StoredDecision
+	var deleted []*StoredDecision
+	for id, origStoredDecision := range modifiedDeleted {
+		if _, exists := pd.ById[id]; exists {
+			modified = append(modified, origStoredDecision)
 		} else {
-			modified = append(modified, id)
+			deleted = append(deleted, origStoredDecision)
 		}
 	}
 	return modified, deleted
 }
 
 // TODO: extras is ways too loosly typed right now
-func (pd *PromptsDB) Set(req *notifier.Request, allow bool, extras map[ExtrasKey]string) (string, []string, []string, error) {
+func (pd *PromptsDB) Set(req *notifier.Request, allow bool, extras map[ExtrasKey]string) (*StoredDecision, []*StoredDecision, []*StoredDecision, error) {
 	// Returns:
-	// string: ID of newly-stored decision ("" if no decision stored)
-	// []string: IDs of modified decisions
-	// []string: IDs of deleted decisions
+	// *StoredDecision: newly-stored decision (nil if no decision stored)
+	// []*StoredDecision: original state of of modified decisions
+	// []*StoredDecision: original state of of deleted decisions
 	// error: error which occurred
 
-	modifiedDeleted := make(map[string]bool)
+	modifiedDeleted := make(map[string]*StoredDecision)
 
 	// nothing to store in the db
 	if extras[ExtrasAlwaysPrompt] == "yes" {
-		return "", make([]string, 0), make([]string, 0), nil
+		return nil, make([]*StoredDecision, 0), make([]*StoredDecision, 0), nil
 	}
 	// what if matching entry is already in the db?
 	// should it be removed since we want to "always prompt"?
@@ -597,8 +620,16 @@ func (pd *PromptsDB) Set(req *notifier.Request, allow bool, extras map[ExtrasKey
 
 		skipNewDecision, err := pd.newDecisionImpliedByPreviousDecision(permissionEntries, which, path, allow)
 		if err != nil {
-			modified, deleted := extractModifiedDeleted(modifiedDeleted)
-			return "", modified, deleted, err
+			// clean up this decision from permissions map, where it was partially added
+			permissionsMap := pd.PermissionsMapForUidAndSnapAndApp(req.SubjectUid, req.Snap, req.App)
+			_ = removeDecisionFromPermissionsMap(newDecision, permissionsMap) // ignore second error
+			// TODO: use modifiedDeleted to revert to previous state (must correct allow maps)
+			// Since permissions have only been removed from decisions in modifiedDeleted, it
+			// should be easy enough to extract permissions in modifiedDeleted[id] but not ById[id]
+			// and add the changed ones back in.
+			// What about timestamp and pruning after re-adding though?
+			modified, deleted := pd.extractModifiedDeleted(modifiedDeleted)
+			return nil, modified, deleted, err
 		}
 		if skipNewDecision {
 			continue
@@ -607,32 +638,39 @@ func (pd *PromptsDB) Set(req *notifier.Request, allow bool, extras map[ExtrasKey
 		noChange = false
 
 		actuallyAdded, permModifiedDeleted, err := pd.insertAndPrune(permissionEntries, newDecision, permission, timestamp)
-
 		if err != nil {
+			// clean up this decision from permissions map, where it was partially added
 			permissionsMap := pd.PermissionsMapForUidAndSnapAndApp(req.SubjectUid, req.Snap, req.App)
 			_ = removeDecisionFromPermissionsMap(newDecision, permissionsMap) // ignore second error
-			modified, deleted := extractModifiedDeleted(modifiedDeleted)
-			return "", modified, deleted, err
+			// TODO: use modifiedDeleted to revert to previous state (must correct allow maps)
+			// Since permissions have only been removed from decisions in modifiedDeleted, it
+			// should be easy enough to extract permissions in modifiedDeleted[id] but not ById[id]
+			// and add the changed ones back in.
+			// What about timestamp and pruning after re-adding though?
+			modified, deleted := pd.extractModifiedDeleted(modifiedDeleted)
+			return nil, modified, deleted, err
 		}
 
 		if actuallyAdded {
 			newDecision.Permissions = append(newDecision.Permissions, permission)
 		}
 
-		for oldId, wasDeleted := range permModifiedDeleted {
-			modifiedDeleted[oldId] = wasDeleted || modifiedDeleted[oldId]
+		for oldId, origStoredDecision := range permModifiedDeleted {
+			if _, exists := modifiedDeleted[oldId]; !exists {
+				modifiedDeleted[oldId] = origStoredDecision
+			}
 		}
 	}
 
-	modified, deleted := extractModifiedDeleted(modifiedDeleted)
+	modified, deleted := pd.extractModifiedDeleted(modifiedDeleted)
 
 	if noChange {
-		return "", modified, deleted, nil
+		return nil, modified, deleted, nil
 	}
 
 	pd.ById[id] = newDecision
 
-	return id, modified, deleted, pd.save()
+	return newDecision, modified, deleted, pd.save()
 }
 
 func (pd *PromptsDB) Get(req *notifier.Request) (bool, error) {
@@ -643,7 +681,7 @@ func (pd *PromptsDB) Get(req *notifier.Request) (bool, error) {
 	}
 	for _, permission := range permissions {
 		permissionEntries := pd.MapsForUidAndSnapAndAppAndPermission(req.SubjectUid, req.Snap, req.App, permission)
-		id, err := pd.findPathInPermissionDB(permissionEntries, req.Path)
+		id, err := pd.FindPathInPermissionDB(permissionEntries, req.Path)
 		allAllow = allAllow && pd.decisionIdAllow(id)
 		if err != nil {
 			return allAllow, err
