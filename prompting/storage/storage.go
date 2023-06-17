@@ -336,9 +336,12 @@ func WhichPermissions(req *notifier.Request, allow bool, extras map[ExtrasKey]st
 // by previous rules in the decision maps given by permissionEntries
 func (pd *PromptsDB) newDecisionImpliedByPreviousDecision(permissionEntries *permissionDB, which AllowType, path string, allow bool) (bool, error) {
 	id, err := pd.findPathInPermissionDB(permissionEntries, path)
-	//alreadyAllowed, err, matchingMap, matchingPath := pd.findPathInPermissionDB(permissionEntries, path)
-	if err != nil && err != ErrNoSavedDecision {
-		return false, err
+	if err != nil {
+		if err == ErrNoSavedDecision {
+			return false, nil
+		} else {
+			return false, err
+		}
 	}
 	alreadyAllowed := pd.decisionIdAllow(id)
 	matchingMap := pd.ById[id].AllowType
@@ -367,7 +370,7 @@ func (pd *PromptsDB) newDecisionImpliedByPreviousDecision(permissionEntries *per
 	//  2. new AllowWithDir, old AllowWithDir, parent match
 	//  3. new AllowWithSubdirs, old _not_ AllowWithSubdirs
 
-	if (err == nil) && (alreadyAllowed == allow) {
+	if alreadyAllowed == allow {
 		// already in db and decision matches
 		if !((which == AllowWithDir && (matchingMap == Allow || (matchingMap == AllowWithDir && matchingPath != path))) || (which == AllowWithSubdirs && matchingMap != AllowWithSubdirs)) {
 			// don't need to do anything
