@@ -254,15 +254,15 @@ func (pd *PromptsDB) PermissionsMapForUidAndSnapAndApp(uid uint32, snap string, 
 
 // TODO: unexport
 func (pd *PromptsDB) MapsForUidAndSnapAndAppAndPermission(uid uint32, snap string, app string, permission string) *permissionDB {
-	permissionMap := pd.PermissionsMapForUidAndSnapAndApp(uid, snap, app)
-	permissionEntries := permissionMap[permission]
+	permissionsMap := pd.PermissionsMapForUidAndSnapAndApp(uid, snap, app)
+	permissionEntries := permissionsMap[permission]
 	if permissionEntries == nil {
 		permissionEntries = &permissionDB{
 			Allow:            make(map[string]string),
 			AllowWithDir:     make(map[string]string),
 			AllowWithSubdirs: make(map[string]string),
 		}
-		permissionMap[permission] = permissionEntries
+		permissionsMap[permission] = permissionEntries
 	}
 	return permissionEntries
 }
@@ -517,12 +517,12 @@ func (pd *PromptsDB) insertAndPrune(permissionEntries *permissionDB, decision *S
 	return added, modifiedDeleted, err
 }
 
-func removeDecisionFromPermissionsMap(decision *StoredDecision, permissionMap map[string]*permissionDB) error {
+func removeDecisionFromPermissionsMap(decision *StoredDecision, permissionsMap map[string]*permissionDB) error {
 	path := decision.Path
 	which := decision.AllowType
 	origPermissions := decision.Permissions
 	for _, permission := range origPermissions {
-		db, exists := permissionMap[permission]
+		db, exists := permissionsMap[permission]
 		if !exists {
 			return ErrPermissionNotFound
 		}
@@ -603,8 +603,8 @@ func (pd *PromptsDB) Set(req *notifier.Request, allow bool, extras map[ExtrasKey
 		actuallyAdded, permModifiedDeleted, err := pd.insertAndPrune(permissionEntries, newDecision, permission)
 
 		if err != nil {
-			permissionMap := pd.PermissionsMapForUidAndSnapAndApp(req.SubjectUid, req.Snap, req.App)
-			_ = removeDecisionFromPermissionsMap(newDecision, permissionMap) // ignore second error
+			permissionsMap := pd.PermissionsMapForUidAndSnapAndApp(req.SubjectUid, req.Snap, req.App)
+			_ = removeDecisionFromPermissionsMap(newDecision, permissionsMap) // ignore second error
 			modified, deleted := extractModifiedDeleted(modifiedDeleted)
 			return "", modified, deleted, err
 		}
