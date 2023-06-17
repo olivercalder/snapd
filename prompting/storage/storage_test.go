@@ -44,7 +44,7 @@ func (s *storageSuite) TestSimple(c *C) {
 	extras := map[storage.ExtrasKey]string{}
 	extras[storage.ExtrasAllowWithSubdirs] = "yes"
 	extras[storage.ExtrasDenyWithSubdirs] = "yes"
-	_, err = st.Set(req, allow, extras)
+	_, _, _, err = st.Set(req, allow, extras)
 	c.Assert(err, IsNil)
 
 	paths := st.MapsForUidAndSnapAndAppAndPermission(req.SubjectUid, req.Snap, req.App, "read").AllowWithSubdirs
@@ -56,7 +56,7 @@ func (s *storageSuite) TestSimple(c *C) {
 
 	// set a more nested path
 	req.Path = "/home/test/foo/bar"
-	_, err = st.Set(req, allow, extras)
+	_, _, _, err = st.Set(req, allow, extras)
 	c.Assert(err, IsNil)
 	// more nested path is not added
 	c.Assert(paths, HasLen, 1)
@@ -87,12 +87,12 @@ func (s *storageSuite) TestSubdirOverrides(c *C) {
 	extras := map[storage.ExtrasKey]string{}
 	extras[storage.ExtrasAllowWithSubdirs] = "yes"
 	extras[storage.ExtrasDenyWithSubdirs] = "yes"
-	_, err = st.Set(req, allow, extras)
+	_, _, _, err = st.Set(req, allow, extras)
 	c.Assert(err, IsNil)
 
 	// set a more nested path to not allow
 	req.Path = "/home/test/foo/bar/"
-	_, err = st.Set(req, !allow, extras)
+	_, _, _, err = st.Set(req, !allow, extras)
 	c.Assert(err, IsNil)
 	// more nested path was added
 	paths := st.MapsForUidAndSnapAndAppAndPermission(req.SubjectUid, req.Snap, req.App, "read").AllowWithSubdirs
@@ -114,7 +114,7 @@ func (s *storageSuite) TestSubdirOverrides(c *C) {
 	c.Assert(allowed, Equals, true)
 
 	// set original path to not allow
-	_, err = st.Set(req, !allow, extras)
+	_, _, _, err = st.Set(req, !allow, extras)
 	c.Assert(err, IsNil)
 	// original assignment was overridden, and older more specific decisions
 	// were removed
@@ -125,7 +125,7 @@ func (s *storageSuite) TestSubdirOverrides(c *C) {
 
 	// set a more nested path to allow
 	req.Path = "/home/test/foo/bar/"
-	_, err = st.Set(req, allow, extras)
+	_, _, _, err = st.Set(req, allow, extras)
 	c.Assert(err, IsNil)
 	// more nested path was added
 	c.Assert(paths, HasLen, 2)
@@ -146,8 +146,8 @@ func (s *storageSuite) TestSubdirOverrides(c *C) {
 	c.Assert(allowed, Equals, false)
 }
 
-func cloneAllowMap(m map[string]bool) map[string]bool {
-	newMap := make(map[string]bool, len(m))
+func cloneAllowMap(m map[string]string) map[string]string {
+	newMap := make(map[string]string, len(m))
 	for k, v := range m {
 		newMap[k] = v
 	}
@@ -156,186 +156,165 @@ func cloneAllowMap(m map[string]bool) map[string]bool {
 
 func (s *storageSuite) TestGetMatches(c *C) {
 	cases := []struct {
-		allow            map[string]bool
-		allowWithDir     map[string]bool
-		allowWithSubdirs map[string]bool
+		allow            map[string]string
+		allowWithDir     map[string]string
+		allowWithSubdirs map[string]string
 		path             string
-		decision         bool
+		correctId        string
 	}{
 		{
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{},
-			map[string]bool{},
+			map[string]string{"/home/test/foo": "a"},
+			map[string]string{},
+			map[string]string{},
 			"/home/test/foo",
-			true,
+			"a",
 		},
 		{
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{},
+			map[string]string{},
+			map[string]string{"/home/test/foo": "a"},
+			map[string]string{},
 			"/home/test/foo",
-			true,
+			"a",
 		},
 		{
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{},
+			map[string]string{},
+			map[string]string{"/home/test/foo": "a"},
+			map[string]string{},
 			"/home/test/foo/bar",
-			true,
+			"a",
 		},
 		{
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
+			map[string]string{},
+			map[string]string{},
+			map[string]string{"/home/test/foo": "a"},
 			"/home/test/foo",
-			true,
+			"a",
 		},
 		{
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
+			map[string]string{},
+			map[string]string{},
+			map[string]string{"/home/test/foo": "a"},
 			"/home/test/foo/bar",
-			true,
+			"a",
 		},
 		{
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
+			map[string]string{},
+			map[string]string{},
+			map[string]string{"/home/test/foo": "a"},
 			"/home/test/foo/bar/baz",
-			true,
+			"a",
 		},
 		{
-			map[string]bool{"/home/test/foo": false},
-			map[string]bool{"/home/test": true},
-			map[string]bool{},
+			map[string]string{"/home/test/foo": "a"},
+			map[string]string{"/home/test": "b"},
+			map[string]string{},
 			"/home/test/foo",
-			false,
+			"a",
 		},
 		{
-			map[string]bool{"/home/test/foo/bar": false},
-			map[string]bool{"/home/test": true},
-			map[string]bool{},
+			map[string]string{"/home/test/foo/bar": "a"},
+			map[string]string{"/home/test": "b"},
+			map[string]string{},
 			"/home/test/foo",
-			true,
+			"b",
 		},
 		{
-			map[string]bool{"/home/test": false},
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{},
+			map[string]string{"/home/test": "a"},
+			map[string]string{"/home/test/foo": "b"},
+			map[string]string{},
 			"/home/test/foo",
-			true,
+			"b",
 		},
 		{
-			map[string]bool{"/home/test": false},
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{},
+			map[string]string{"/home/test": "a"},
+			map[string]string{"/home/test/foo": "b"},
+			map[string]string{},
 			"/home/test/foo/bar",
-			true,
+			"b",
 		},
 		{
-			map[string]bool{"/home/test/foo": false},
-			map[string]bool{},
-			map[string]bool{"/home/test": true},
+			map[string]string{"/home/test/foo": "a"},
+			map[string]string{},
+			map[string]string{"/home/test": "b"},
 			"/home/test/foo/bar/baz",
-			true,
+			"b",
 		},
 		{
-			map[string]bool{"/home/test/foo": false},
-			map[string]bool{},
-			map[string]bool{"/home/test": true},
+			map[string]string{"/home/test/foo": "a"},
+			map[string]string{},
+			map[string]string{"/home/test": "b"},
 			"/home/test/foo/bar",
-			true,
+			"b",
 		},
 		{
-			map[string]bool{"/home/test/foo": false},
-			map[string]bool{},
-			map[string]bool{"/home/test": true},
+			map[string]string{"/home/test/foo": "a"},
+			map[string]string{},
+			map[string]string{"/home/test": "b"},
 			"/home/test/foo",
-			false,
+			"a",
 		},
 		{
-			map[string]bool{"/home/test/foo": false},
-			map[string]bool{},
-			map[string]bool{"/home/test": true},
+			map[string]string{"/home/test/foo": "a"},
+			map[string]string{},
+			map[string]string{"/home/test": "b"},
 			"/home/test",
-			true,
+			"b",
 		},
 		{
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{"/home/test": false},
+			map[string]string{},
+			map[string]string{"/home/test/foo": "a"},
+			map[string]string{"/home/test": "b"},
 			"/home/test/foo/bar/baz",
-			false,
+			"b",
 		},
 		{
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{"/home/test": false},
+			map[string]string{},
+			map[string]string{"/home/test/foo": "a"},
+			map[string]string{"/home/test": "b"},
 			"/home/test/foo/bar",
-			true,
+			"a",
 		},
 		{
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{"/home/test": false},
+			map[string]string{},
+			map[string]string{"/home/test/foo": "a"},
+			map[string]string{"/home/test": "b"},
 			"/home/test/foo",
-			true,
+			"a",
 		},
 		{
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{"/home/test": false},
+			map[string]string{},
+			map[string]string{"/home/test/foo": "a"},
+			map[string]string{"/home/test": "b"},
 			"/home/test",
-			false,
+			"b",
 		},
 		{
-			map[string]bool{"/home/test/foo/bar": false},
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{"/home/test": false},
+			map[string]string{"/home/test/foo/bar": "a"},
+			map[string]string{"/home/test/foo": "b"},
+			map[string]string{"/home/test": "c"},
 			"/home/test/foo/bar/baz",
-			false,
+			"c",
 		},
 		{
-			map[string]bool{"/home/test/foo/bar": false},
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{"/home/test": false},
+			map[string]string{"/home/test/foo/bar": "a"},
+			map[string]string{"/home/test/foo": "b"},
+			map[string]string{"/home/test": "c"},
 			"/home/test/foo/bar",
-			false,
+			"a",
 		},
 		{
-			map[string]bool{"/home/test/foo/bar": true},
-			map[string]bool{"/home/test/foo": false},
-			map[string]bool{"/home/test": true},
-			"/home/test/foo/bar",
-			true,
-		},
-		{
-			map[string]bool{"/home/test/foo/bar": false},
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{"/home/test": false},
+			map[string]string{"/home/test/foo/bar": "a"},
+			map[string]string{"/home/test/foo": "b"},
+			map[string]string{"/home/test": "c"},
 			"/home/test/foo",
-			true,
+			"b",
 		},
 		{
-			map[string]bool{"/home/test/foo/bar": true},
-			map[string]bool{"/home/test/foo": false},
-			map[string]bool{"/home/test": true},
-			"/home/test/foo",
-			false,
-		},
-		{
-			map[string]bool{"/home/test/foo/bar": false},
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{"/home/test": false},
+			map[string]string{"/home/test/foo/bar": "a"},
+			map[string]string{"/home/test/foo": "b"},
+			map[string]string{"/home/test": "c"},
 			"/home/test",
-			false,
-		},
-		{
-			map[string]bool{"/home/test/foo/bar": true},
-			map[string]bool{"/home/test/foo": false},
-			map[string]bool{"/home/test": true},
-			"/home/test",
-			true,
+			"c",
 		},
 	}
 
@@ -356,81 +335,80 @@ func (s *storageSuite) TestGetMatches(c *C) {
 		permissionEntries.Allow = cloneAllowMap(testCase.allow)
 		permissionEntries.AllowWithDir = cloneAllowMap(testCase.allowWithDir)
 		permissionEntries.AllowWithSubdirs = cloneAllowMap(testCase.allowWithSubdirs)
-		req.Path = testCase.path
-		allow, err := st.Get(req)
+		matchingId, err := st.FindPathInPermissionDB(permissionEntries, testCase.path)
 		c.Check(err, IsNil, Commentf("\nTest case %d:\n%+v\nError: %v", i, testCase, err))
-		c.Check(allow, Equals, testCase.decision, Commentf("\nTest case %d:\n%+v\nGet() returned: %v", i, testCase, allow))
+		c.Check(matchingId, Equals, testCase.correctId, Commentf("\nTest case %d:\n%+v\nGet() returned: %v", i, testCase, matchingId))
 	}
 }
 
 func (s *storageSuite) TestGetErrors(c *C) {
 	cases := []struct {
-		allow            map[string]bool
-		allowWithDir     map[string]bool
-		allowWithSubdirs map[string]bool
+		allow            map[string]string
+		allowWithDir     map[string]string
+		allowWithSubdirs map[string]string
 		path             string
 		err              error
 	}{
 		{
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{},
-			map[string]bool{},
+			map[string]string{"/home/test/foo": "a"},
+			map[string]string{},
+			map[string]string{},
 			"/home/test/foo/bar",
 			storage.ErrNoSavedDecision,
 		},
 		{
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{},
-			map[string]bool{},
+			map[string]string{"/home/test/foo": "a"},
+			map[string]string{},
+			map[string]string{},
 			"/home/test",
 			storage.ErrNoSavedDecision,
 		},
 		{
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{},
+			map[string]string{},
+			map[string]string{"/home/test/foo": "a"},
+			map[string]string{},
 			"/home/test/foo/bar/baz",
 			storage.ErrNoSavedDecision,
 		},
 		{
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{},
+			map[string]string{},
+			map[string]string{"/home/test/foo": "a"},
+			map[string]string{},
 			"/home/test",
 			storage.ErrNoSavedDecision,
 		},
 		{
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
+			map[string]string{},
+			map[string]string{},
+			map[string]string{"/home/test/foo": "a"},
 			"/home/test",
 			storage.ErrNoSavedDecision,
 		},
 		{
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{},
+			map[string]string{"/home/test/foo": "a"},
+			map[string]string{"/home/test/foo": "b"},
+			map[string]string{},
 			"/home/test/foo",
 			storage.ErrMultipleDecisions,
 		},
 		{
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
+			map[string]string{"/home/test/foo": "a"},
+			map[string]string{},
+			map[string]string{"/home/test/foo": "b"},
 			"/home/test/foo",
 			storage.ErrMultipleDecisions,
 		},
 		{
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{"/home/test/foo": true},
+			map[string]string{},
+			map[string]string{"/home/test/foo": "a"},
+			map[string]string{"/home/test/foo": "b"},
 			"/home/test/foo",
 			storage.ErrMultipleDecisions,
 		},
 		{
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{"/home/test/foo": true},
+			map[string]string{"/home/test/foo": "a"},
+			map[string]string{"/home/test/foo": "b"},
+			map[string]string{"/home/test/foo": "c"},
 			"/home/test/foo",
 			storage.ErrMultipleDecisions,
 		},
@@ -453,8 +431,8 @@ func (s *storageSuite) TestGetErrors(c *C) {
 		permissionEntries.Allow = cloneAllowMap(testCase.allow)
 		permissionEntries.AllowWithDir = cloneAllowMap(testCase.allowWithDir)
 		permissionEntries.AllowWithSubdirs = cloneAllowMap(testCase.allowWithSubdirs)
-		req.Path = testCase.path
-		_, err := st.Get(req)
+		matchingId, err := st.FindPathInPermissionDB(permissionEntries, testCase.path)
+		c.Check(matchingId, Equals, "", Commentf("\nTest case %d:\n%+v\nUnexpected matching ID: %v", i, testCase, matchingId))
 		c.Check(err, Equals, testCase.err, Commentf("\nTest case %d:\n%+v\nUnexpected Error: %v", i, testCase, err))
 	}
 }
@@ -479,522 +457,738 @@ func (s *storageSuite) TestSetBehaviorWithMatches(c *C) {
 	// new AllowWithSubdirs, old AllowWithSubdirs, exact match -> replace if different
 	// new AllowWithSubdirs, old AllowWithDir, parent match -> insert always XXX
 	// new AllowWithSubdirs, old AllowWithSubdirs, ancestor match -> insert if different
+
+	type setParams struct {
+		path     string
+		decision bool
+		extras   map[storage.ExtrasKey]string
+	}
+
 	cases := []struct {
-		initialAllow            map[string]bool
-		initialAllowWithDir     map[string]bool
-		initialAllowWithSubdirs map[string]bool
-		path                    string
-		decision                bool
-		extras                  map[storage.ExtrasKey]string
-		finalAllow              map[string]bool
-		finalAllowWithDir       map[string]bool
-		finalAllowWithSubdirs   map[string]bool
+		initial      []setParams
+		thenSet      setParams
+		shouldBeNew  bool
+		deletedPaths []string
 	}{
 		{ // new Allow, old Allow -> replace if different
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{},
-			map[string]bool{},
-			"/home/test/foo",
-			true,
-			map[storage.ExtrasKey]string{},
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{},
-			map[string]bool{},
+			[]setParams{
+				{
+					"/home/test/foo",
+					true,
+					map[storage.ExtrasKey]string{},
+				},
+			},
+			setParams{
+				"/home/test/foo",
+				true,
+				map[storage.ExtrasKey]string{},
+			},
+			false,
+			[]string{},
 		},
 		{ // new Allow, old Allow -> replace if different
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{},
-			map[string]bool{},
-			"/home/test/foo",
-			false,
-			map[storage.ExtrasKey]string{},
-			map[string]bool{"/home/test/foo": false},
-			map[string]bool{},
-			map[string]bool{},
+			[]setParams{
+				{
+					"/home/test/foo",
+					true,
+					map[storage.ExtrasKey]string{},
+				},
+			},
+			setParams{
+				"/home/test/foo",
+				false,
+				map[storage.ExtrasKey]string{},
+			},
+			true,
+			[]string{"/home/test/foo"},
 		},
 		{ // new Allow, old AllowWithDir, exact match -> replace if different
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{},
-			"/home/test/foo",
-			true,
-			map[storage.ExtrasKey]string{},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{},
+			[]setParams{
+				{
+					"/home/test/foo/",
+					true,
+					map[storage.ExtrasKey]string{storage.ExtrasAllowWithDir: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo",
+				true,
+				map[storage.ExtrasKey]string{},
+			},
+			false,
+			[]string{},
 		},
 		{ // new Allow, old AllowWithDir, exact match -> replace if different
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{},
-			"/home/test/foo",
-			false,
-			map[storage.ExtrasKey]string{},
-			map[string]bool{"/home/test/foo": false},
-			map[string]bool{},
-			map[string]bool{},
+			[]setParams{
+				{
+					"/home/test/foo/",
+					true,
+					map[storage.ExtrasKey]string{storage.ExtrasAllowWithDir: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo",
+				false,
+				map[storage.ExtrasKey]string{},
+			},
+			true,
+			[]string{"/home/test/foo"},
 		},
 		{ // new Allow, old AllowWithDir, exact match -> replace if different
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": false},
-			map[string]bool{},
-			"/home/test/foo",
+			[]setParams{
+				{
+					"/home/test/foo/",
+					false,
+					map[storage.ExtrasKey]string{storage.ExtrasDenyWithDir: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo",
+				true,
+				map[storage.ExtrasKey]string{},
+			},
 			true,
-			map[storage.ExtrasKey]string{},
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{},
-			map[string]bool{},
+			[]string{"/home/test/foo"},
 		},
 		{ // new Allow, old AllowWithSubdirs, exact match -> replace if different
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
-			"/home/test/foo",
-			true,
-			map[storage.ExtrasKey]string{},
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
-		},
-		{ // new Allow, old AllowWithSubdirs, exact match -> replace if different
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
-			"/home/test/foo",
+			[]setParams{
+				{
+					"/home/test/foo/",
+					true,
+					map[storage.ExtrasKey]string{storage.ExtrasAllowWithSubdirs: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo",
+				true,
+				map[storage.ExtrasKey]string{},
+			},
 			false,
-			map[storage.ExtrasKey]string{},
-			map[string]bool{"/home/test/foo": false},
-			map[string]bool{},
-			map[string]bool{},
+			[]string{},
 		},
 		{ // new Allow, old AllowWithSubdirs, exact match -> replace if different
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": false},
-			"/home/test/foo",
+			[]setParams{
+				{
+					"/home/test/foo/",
+					true,
+					map[storage.ExtrasKey]string{storage.ExtrasAllowWithSubdirs: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo",
+				false,
+				map[storage.ExtrasKey]string{},
+			},
 			true,
-			map[storage.ExtrasKey]string{},
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{},
-			map[string]bool{},
+			[]string{"/home/test/foo"},
+		},
+		{ // new Allow, old AllowWithSubdirs, exact match -> replace if different
+			[]setParams{
+				{
+					"/home/test/foo/",
+					false,
+					map[storage.ExtrasKey]string{storage.ExtrasDenyWithSubdirs: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo",
+				true,
+				map[storage.ExtrasKey]string{},
+			},
+			true,
+			[]string{"/home/test/foo"},
 		},
 		{ // new Allow, old AllowWithDir, parent match -> insert if different
-			map[string]bool{},
-			map[string]bool{"/home/test": true},
-			map[string]bool{},
-			"/home/test/foo",
-			true,
-			map[storage.ExtrasKey]string{},
-			map[string]bool{},
-			map[string]bool{"/home/test": true},
-			map[string]bool{},
+			[]setParams{
+				{
+					"/home/test/",
+					true,
+					map[storage.ExtrasKey]string{storage.ExtrasAllowWithDir: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo",
+				true,
+				map[storage.ExtrasKey]string{},
+			},
+			false,
+			[]string{},
 		},
 		{ // new Allow, old AllowWithDir, parent match -> insert if different
-			map[string]bool{},
-			map[string]bool{"/home/test": true},
-			map[string]bool{},
-			"/home/test/foo",
-			false,
-			map[storage.ExtrasKey]string{},
-			map[string]bool{"/home/test/foo": false},
-			map[string]bool{"/home/test": true},
-			map[string]bool{},
+			[]setParams{
+				{
+					"/home/test/",
+					true,
+					map[storage.ExtrasKey]string{storage.ExtrasAllowWithDir: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo",
+				false,
+				map[storage.ExtrasKey]string{},
+			},
+			true,
+			[]string{},
 		},
 		{ // new Allow, old AllowWithDir, no match -> insert always
-			map[string]bool{},
-			map[string]bool{"/home/test": true},
-			map[string]bool{},
-			"/home/test/foo/bar",
+			[]setParams{
+				{
+					"/home/test/",
+					true,
+					map[storage.ExtrasKey]string{storage.ExtrasAllowWithDir: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo/bar",
+				true,
+				map[storage.ExtrasKey]string{},
+			},
 			true,
-			map[storage.ExtrasKey]string{},
-			map[string]bool{"/home/test/foo/bar": true},
-			map[string]bool{"/home/test": true},
-			map[string]bool{},
+			[]string{},
 		},
 		{ // new Allow, old AllowWithSubdirs, ancestor match -> insert if different
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test": true},
-			"/home/test/foo/bar",
-			true,
-			map[storage.ExtrasKey]string{},
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test": true},
-		},
-		{ // new Allow, old AllowWithSubdirs, ancestor match -> insert if different
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test": true},
-			"/home/test/foo/bar",
+			[]setParams{
+				{
+					"/home/test/",
+					true,
+					map[storage.ExtrasKey]string{storage.ExtrasAllowWithSubdirs: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo/bar",
+				true,
+				map[storage.ExtrasKey]string{},
+			},
 			false,
-			map[storage.ExtrasKey]string{},
-			map[string]bool{"/home/test/foo/bar": false},
-			map[string]bool{},
-			map[string]bool{"/home/test": true},
+			[]string{},
 		},
 		{ // new Allow, old AllowWithSubdirs, ancestor match -> insert if different
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test": false},
-			"/home/test/foo/bar",
+			[]setParams{
+				{
+					"/home/test/",
+					true,
+					map[storage.ExtrasKey]string{storage.ExtrasAllowWithSubdirs: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo/bar",
+				false,
+				map[storage.ExtrasKey]string{},
+			},
 			true,
-			map[storage.ExtrasKey]string{},
-			map[string]bool{"/home/test/foo/bar": true},
-			map[string]bool{},
-			map[string]bool{"/home/test": false},
+			[]string{},
+		},
+		{ // new Allow, old AllowWithSubdirs, ancestor match -> insert if different
+			[]setParams{
+				{
+					"/home/test/",
+					false,
+					map[storage.ExtrasKey]string{storage.ExtrasDenyWithSubdirs: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo/bar",
+				true,
+				map[storage.ExtrasKey]string{},
+			},
+			true,
+			[]string{},
 		},
 		{ // new Allow, old AllowWithSubdirs, no match -> insert always
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
-			"/home/test/bar",
+			[]setParams{
+				{
+					"/home/test/foo/",
+					true,
+					map[storage.ExtrasKey]string{storage.ExtrasAllowWithSubdirs: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/bar",
+				true,
+				map[storage.ExtrasKey]string{},
+			},
 			true,
-			map[storage.ExtrasKey]string{},
-			map[string]bool{"/home/test/bar": true},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
+			[]string{},
 		},
 		{ // new Allow, old AllowWithSubdirs, ancestor match -> insert if different
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
-			"/home/test/bar",
-			false,
-			map[storage.ExtrasKey]string{},
-			map[string]bool{"/home/test/bar": false},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
-		},
-		{ // new AllowWithDir, old Allow -> replace always
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{},
-			map[string]bool{},
-			"/home/test/foo/",
+			[]setParams{
+				{
+					"/home/test/foo/",
+					true,
+					map[storage.ExtrasKey]string{storage.ExtrasAllowWithSubdirs: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/bar",
+				false,
+				map[storage.ExtrasKey]string{},
+			},
 			true,
-			map[storage.ExtrasKey]string{storage.ExtrasAllowWithDir: "yes"},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{},
+			[]string{},
 		},
 		{ // new AllowWithDir, old Allow -> replace always
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{},
-			map[string]bool{},
-			"/home/test/foo/",
-			false,
-			map[storage.ExtrasKey]string{storage.ExtrasDenyWithDir: "yes"},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": false},
-			map[string]bool{},
+			[]setParams{
+				{
+					"/home/test/foo",
+					true,
+					map[storage.ExtrasKey]string{},
+				},
+			},
+			setParams{
+				"/home/test/foo/",
+				true,
+				map[storage.ExtrasKey]string{storage.ExtrasAllowWithDir: "yes"},
+			},
+			true,
+			[]string{"/home/test/foo"},
 		},
 		{ // new AllowWithDir, old Allow -> replace always
-			map[string]bool{"/home/test/foo": false},
-			map[string]bool{},
-			map[string]bool{},
-			"/home/test/foo/",
-			false,
-			map[storage.ExtrasKey]string{storage.ExtrasDenyWithDir: "yes"},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": false},
-			map[string]bool{},
+			[]setParams{
+				{
+					"/home/test/foo",
+					true,
+					map[storage.ExtrasKey]string{},
+				},
+			},
+			setParams{
+				"/home/test/foo/",
+				false,
+				map[storage.ExtrasKey]string{storage.ExtrasDenyWithDir: "yes"},
+			},
+			true,
+			[]string{"/home/test/foo"},
+		},
+		{ // new AllowWithDir, old Allow -> replace always
+			[]setParams{
+				{
+					"/home/test/foo",
+					false,
+					map[storage.ExtrasKey]string{},
+				},
+			},
+			setParams{
+				"/home/test/foo/",
+				false,
+				map[storage.ExtrasKey]string{storage.ExtrasDenyWithDir: "yes"},
+			},
+			true,
+			[]string{"/home/test/foo"},
 		},
 		{ // new AllowWithDir, old AllowWithDir, exact match -> replace if different
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{},
-			"/home/test/foo/",
-			true,
-			map[storage.ExtrasKey]string{storage.ExtrasAllowWithDir: "yes"},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{},
+			[]setParams{
+				{
+					"/home/test/foo/",
+					true,
+					map[storage.ExtrasKey]string{storage.ExtrasAllowWithDir: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo/",
+				true,
+				map[storage.ExtrasKey]string{storage.ExtrasAllowWithDir: "yes"},
+			},
+			false,
+			[]string{},
 		},
 		{ // new AllowWithDir, old AllowWithDir, exact match -> replace if different
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{},
-			"/home/test/foo/",
-			false,
-			map[storage.ExtrasKey]string{storage.ExtrasDenyWithDir: "yes"},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": false},
-			map[string]bool{},
-		},
-		{ // new AllowWithDir, old AllowWithSubdir, exact match -> replace if different
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
-			"/home/test/foo/",
+			[]setParams{
+				{
+					"/home/test/foo/",
+					true,
+					map[storage.ExtrasKey]string{storage.ExtrasAllowWithDir: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo/",
+				false,
+				map[storage.ExtrasKey]string{storage.ExtrasDenyWithDir: "yes"},
+			},
 			true,
-			map[storage.ExtrasKey]string{storage.ExtrasAllowWithDir: "yes"},
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
+			[]string{"/home/test/foo"},
 		},
 		{ // new AllowWithDir, old AllowWithSubdir, exact match -> replace if different
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
-			"/home/test/foo/",
+			[]setParams{
+				{
+					"/home/test/foo/",
+					true,
+					map[storage.ExtrasKey]string{storage.ExtrasAllowWithSubdirs: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo/",
+				true,
+				map[storage.ExtrasKey]string{storage.ExtrasAllowWithDir: "yes"},
+			},
 			false,
-			map[storage.ExtrasKey]string{storage.ExtrasDenyWithDir: "yes"},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": false},
-			map[string]bool{},
+			[]string{},
 		},
 		{ // new AllowWithDir, old AllowWithSubdir, exact match -> replace if different
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": false},
-			"/home/test/foo/",
+			[]setParams{
+				{
+					"/home/test/foo/",
+					true,
+					map[storage.ExtrasKey]string{storage.ExtrasAllowWithSubdirs: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo/",
+				false,
+				map[storage.ExtrasKey]string{storage.ExtrasDenyWithDir: "yes"},
+			},
 			true,
-			map[storage.ExtrasKey]string{storage.ExtrasAllowWithDir: "yes"},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{},
+			[]string{"/home/test/foo"},
 		},
 		{ // new AllowWithDir, old AllowWithSubdir, exact match -> replace if different
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": false},
-			"/home/test/foo/",
+			[]setParams{
+				{
+					"/home/test/foo/",
+					false,
+					map[storage.ExtrasKey]string{storage.ExtrasDenyWithSubdirs: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo/",
+				true,
+				map[storage.ExtrasKey]string{storage.ExtrasAllowWithDir: "yes"},
+			},
+			true,
+			[]string{"/home/test/foo"},
+		},
+		{ // new AllowWithDir, old AllowWithSubdir, exact match -> replace if different
+			[]setParams{
+				{
+					"/home/test/foo/",
+					false,
+					map[storage.ExtrasKey]string{storage.ExtrasDenyWithSubdirs: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo/",
+				false,
+				map[storage.ExtrasKey]string{storage.ExtrasDenyWithDir: "yes"},
+			},
 			false,
-			map[storage.ExtrasKey]string{storage.ExtrasDenyWithDir: "yes"},
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": false},
+			[]string{},
 		},
 		{ // new AllowWithDir, old AllowWithDir, parent match -> insert always
-			map[string]bool{},
-			map[string]bool{"/home/test": true},
-			map[string]bool{},
-			"/home/test/foo/",
+			[]setParams{
+				{
+					"/home/test/",
+					true,
+					map[storage.ExtrasKey]string{storage.ExtrasAllowWithDir: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo/",
+				true,
+				map[storage.ExtrasKey]string{storage.ExtrasAllowWithDir: "yes"},
+			},
 			true,
-			map[storage.ExtrasKey]string{storage.ExtrasAllowWithDir: "yes"},
-			map[string]bool{},
-			map[string]bool{"/home/test": true, "/home/test/foo": true},
-			map[string]bool{},
+			[]string{},
 		},
 		{ // new AllowWithDir, old AllowWithDir, parent match -> insert always
-			map[string]bool{},
-			map[string]bool{"/home/test": true},
-			map[string]bool{},
-			"/home/test/foo/",
-			false,
-			map[storage.ExtrasKey]string{storage.ExtrasDenyWithDir: "yes"},
-			map[string]bool{},
-			map[string]bool{"/home/test": true, "/home/test/foo": false},
-			map[string]bool{},
+			[]setParams{
+				{
+					"/home/test/",
+					true,
+					map[storage.ExtrasKey]string{storage.ExtrasAllowWithDir: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo/",
+				false,
+				map[storage.ExtrasKey]string{storage.ExtrasDenyWithDir: "yes"},
+			},
+			true,
+			[]string{},
 		},
 		{ // new AllowWithDir, old AllowWithSubdir, ancestor match -> insert if different
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test": true},
-			"/home/test/foo/bar/",
-			true,
-			map[storage.ExtrasKey]string{storage.ExtrasAllowWithDir: "yes"},
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test": true},
+			[]setParams{
+				{
+					"/home/test/",
+					true,
+					map[storage.ExtrasKey]string{storage.ExtrasAllowWithSubdirs: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo/bar/",
+				true,
+				map[storage.ExtrasKey]string{storage.ExtrasAllowWithDir: "yes"},
+			},
+			false,
+			[]string{},
 		},
 		{ // new AllowWithDir, old AllowWithSubdir, ancestor match -> insert if different
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test": true},
-			"/home/test/foo/bar/",
-			false,
-			map[storage.ExtrasKey]string{storage.ExtrasDenyWithDir: "yes"},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo/bar": false},
-			map[string]bool{"/home/test": true},
+			[]setParams{
+				{
+					"/home/test/",
+					true,
+					map[storage.ExtrasKey]string{storage.ExtrasAllowWithSubdirs: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo/bar/",
+				false,
+				map[storage.ExtrasKey]string{storage.ExtrasDenyWithDir: "yes"},
+			},
+			true,
+			[]string{},
 		},
 		{ // new AllowWithDir, old AllowWithSubdir, ancestor match -> insert if different
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test": false},
-			"/home/test/foo/",
+			[]setParams{
+				{
+					"/home/test/",
+					false,
+					map[storage.ExtrasKey]string{storage.ExtrasDenyWithSubdirs: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo/",
+				true,
+				map[storage.ExtrasKey]string{storage.ExtrasAllowWithDir: "yes"},
+			},
 			true,
-			map[storage.ExtrasKey]string{storage.ExtrasAllowWithDir: "yes"},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{"/home/test": false},
+			[]string{},
 		},
 		{ // new AllowWithSubdirs, old Allow -> replace always
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{},
-			map[string]bool{},
-			"/home/test/foo/",
+			[]setParams{
+				{
+					"/home/test/foo/",
+					true,
+					map[storage.ExtrasKey]string{},
+				},
+			},
+			setParams{
+				"/home/test/foo/",
+				true,
+				map[storage.ExtrasKey]string{storage.ExtrasAllowWithSubdirs: "yes"},
+			},
 			true,
-			map[storage.ExtrasKey]string{storage.ExtrasAllowWithSubdirs: "yes"},
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
+			[]string{"/home/test/foo"},
 		},
 		{ // new AllowWithSubdirs, old Allow -> replace always
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{},
-			map[string]bool{},
-			"/home/test/foo/",
-			false,
-			map[storage.ExtrasKey]string{storage.ExtrasDenyWithSubdirs: "yes"},
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": false},
+			[]setParams{
+				{
+					"/home/test/foo/",
+					true,
+					map[storage.ExtrasKey]string{},
+				},
+			},
+			setParams{
+				"/home/test/foo/",
+				false,
+				map[storage.ExtrasKey]string{storage.ExtrasDenyWithSubdirs: "yes"},
+			},
+			true,
+			[]string{"/home/test/foo"},
 		},
 		{ // new AllowWithSubdirs, old Allow -> replace always
-			map[string]bool{"/home/test/foo": false},
-			map[string]bool{},
-			map[string]bool{},
-			"/home/test/foo/",
-			false,
-			map[storage.ExtrasKey]string{storage.ExtrasDenyWithSubdirs: "yes"},
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": false},
-		},
-		{ // new AllowWithSubdirs, old AllowWithDir, exact match -> replace always
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{},
-			"/home/test/foo/",
+			[]setParams{
+				{
+					"/home/test/foo/",
+					false,
+					map[storage.ExtrasKey]string{},
+				},
+			},
+			setParams{
+				"/home/test/foo/",
+				false,
+				map[storage.ExtrasKey]string{storage.ExtrasDenyWithSubdirs: "yes"},
+			},
 			true,
-			map[storage.ExtrasKey]string{storage.ExtrasAllowWithSubdirs: "yes"},
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
+			[]string{"/home/test/foo"},
 		},
 		{ // new AllowWithSubdirs, old AllowWithDir, exact match -> replace always
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
-			map[string]bool{},
-			"/home/test/foo/",
-			false,
-			map[storage.ExtrasKey]string{storage.ExtrasDenyWithSubdirs: "yes"},
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": false},
+			[]setParams{
+				{
+					"/home/test/foo/",
+					true,
+					map[storage.ExtrasKey]string{storage.ExtrasAllowWithDir: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo/",
+				true,
+				map[storage.ExtrasKey]string{storage.ExtrasAllowWithSubdirs: "yes"},
+			},
+			true,
+			[]string{"/home/test/foo"},
 		},
 		{ // new AllowWithSubdirs, old AllowWithDir, exact match -> replace always
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": false},
-			map[string]bool{},
-			"/home/test/foo/",
-			false,
-			map[storage.ExtrasKey]string{storage.ExtrasDenyWithSubdirs: "yes"},
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": false},
+			[]setParams{
+				{
+					"/home/test/foo/",
+					true,
+					map[storage.ExtrasKey]string{storage.ExtrasAllowWithDir: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo/",
+				false,
+				map[storage.ExtrasKey]string{storage.ExtrasDenyWithSubdirs: "yes"},
+			},
+			true,
+			[]string{"/home/test/foo"},
 		},
 		{ // new AllowWithSubdirs, old AllowWithDir, exact match -> replace always
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": false},
-			map[string]bool{},
-			"/home/test/foo/",
-			false,
-			map[storage.ExtrasKey]string{storage.ExtrasDenyWithSubdirs: "yes"},
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": false},
+			[]setParams{
+				{
+					"/home/test/foo/",
+					false,
+					map[storage.ExtrasKey]string{storage.ExtrasDenyWithDir: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo/",
+				false,
+				map[storage.ExtrasKey]string{storage.ExtrasDenyWithSubdirs: "yes"},
+			},
+			true,
+			[]string{"/home/test/foo"},
 		},
 		{ // new AllowWithSubdirs, old AllowWithSubdirs, exact match -> replace if different
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
-			"/home/test/foo/",
-			true,
-			map[storage.ExtrasKey]string{storage.ExtrasAllowWithSubdirs: "yes"},
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
+			[]setParams{
+				{
+					"/home/test/foo/",
+					true,
+					map[storage.ExtrasKey]string{storage.ExtrasAllowWithSubdirs: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo/",
+				true,
+				map[storage.ExtrasKey]string{storage.ExtrasAllowWithSubdirs: "yes"},
+			},
+			false,
+			[]string{""},
 		},
 		{ // new AllowWithSubdirs, old AllowWithSubdirs, exact match -> replace if different
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
-			"/home/test/foo/",
-			false,
-			map[storage.ExtrasKey]string{storage.ExtrasDenyWithSubdirs: "yes"},
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": false},
-		},
-		{ // new AllowWithSubdirs, old AllowWithDir, parent match -> insert always
-			map[string]bool{},
-			map[string]bool{"/home/test": true},
-			map[string]bool{},
-			"/home/test/foo/",
+			[]setParams{
+				{
+					"/home/test/foo/",
+					true,
+					map[storage.ExtrasKey]string{storage.ExtrasAllowWithSubdirs: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo/",
+				false,
+				map[storage.ExtrasKey]string{storage.ExtrasDenyWithSubdirs: "yes"},
+			},
 			true,
-			map[storage.ExtrasKey]string{storage.ExtrasAllowWithSubdirs: "yes"},
-			map[string]bool{},
-			map[string]bool{"/home/test": true},
-			map[string]bool{"/home/test/foo": true},
+			[]string{"/home/test/foo"},
 		},
 		{ // new AllowWithSubdirs, old AllowWithDir, parent match -> insert always
-			map[string]bool{},
-			map[string]bool{"/home/test": true},
-			map[string]bool{},
-			"/home/test/foo/",
-			false,
-			map[storage.ExtrasKey]string{storage.ExtrasDenyWithSubdirs: "yes"},
-			map[string]bool{},
-			map[string]bool{"/home/test": true},
-			map[string]bool{"/home/test/foo": false},
+			[]setParams{
+				{
+					"/home/test/",
+					true,
+					map[storage.ExtrasKey]string{storage.ExtrasAllowWithDir: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo/",
+				true,
+				map[storage.ExtrasKey]string{storage.ExtrasAllowWithSubdirs: "yes"},
+			},
+			true,
+			[]string{},
+		},
+		{ // new AllowWithSubdirs, old AllowWithDir, parent match -> insert always
+			[]setParams{
+				{
+					"/home/test/",
+					true,
+					map[storage.ExtrasKey]string{storage.ExtrasAllowWithDir: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo/",
+				false,
+				map[storage.ExtrasKey]string{storage.ExtrasDenyWithSubdirs: "yes"},
+			},
+			true,
+			[]string{},
 		},
 		{ // new AllowWithSubdirs, old AllowWithDir, no match -> insert always
-			map[string]bool{},
-			map[string]bool{"/home/test": true},
-			map[string]bool{},
-			"/home/test/foo/bar/",
+			[]setParams{
+				{
+					"/home/test/",
+					true,
+					map[storage.ExtrasKey]string{storage.ExtrasAllowWithDir: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo/bar/",
+				true,
+				map[storage.ExtrasKey]string{storage.ExtrasAllowWithSubdirs: "yes"},
+			},
 			true,
-			map[storage.ExtrasKey]string{storage.ExtrasAllowWithSubdirs: "yes"},
-			map[string]bool{},
-			map[string]bool{"/home/test": true},
-			map[string]bool{"/home/test/foo/bar": true},
+			[]string{},
 		},
 		{ // new AllowWithSubdirs, old AllowWithSubdirs, ancestor match -> insert if different
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test": true},
-			"/home/test/foo/bar/",
+			[]setParams{
+				{
+					"/home/test/",
+					true,
+					map[storage.ExtrasKey]string{storage.ExtrasAllowWithSubdirs: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo/bar/",
+				true,
+				map[storage.ExtrasKey]string{storage.ExtrasAllowWithSubdirs: "yes"},
+			},
+			false,
+			[]string{},
+		},
+		{ // new AllowWithSubdirs, old AllowWithSubdirs, ancestor match -> insert if different
+			[]setParams{
+				{
+					"/home/test/",
+					true,
+					map[storage.ExtrasKey]string{storage.ExtrasAllowWithSubdirs: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo/bar/",
+				false,
+				map[storage.ExtrasKey]string{storage.ExtrasDenyWithSubdirs: "yes"},
+			},
 			true,
-			map[storage.ExtrasKey]string{storage.ExtrasAllowWithSubdirs: "yes"},
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test": true},
+			[]string{},
 		},
 		{ // new AllowWithSubdirs, old AllowWithSubdirs, ancestor match -> insert if different
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test": true},
-			"/home/test/foo/bar/",
+			[]setParams{
+				{
+					"/home/test/",
+					false,
+					map[storage.ExtrasKey]string{storage.ExtrasDenyWithSubdirs: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/foo/",
+				false,
+				map[storage.ExtrasKey]string{storage.ExtrasDenyWithSubdirs: "yes"},
+			},
 			false,
-			map[storage.ExtrasKey]string{storage.ExtrasDenyWithSubdirs: "yes"},
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test": true, "/home/test/foo/bar": false},
-		},
-		{ // new AllowWithSubdirs, old AllowWithSubdirs, ancestor match -> insert if different
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test": false},
-			"/home/test/foo/",
-			false,
-			map[storage.ExtrasKey]string{storage.ExtrasDenyWithSubdirs: "yes"},
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test": false},
+			[]string{},
 		},
 		{ // new AllowWithSubdirs, old AllowWithSubdirs, no match -> insert always
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true},
-			"/home/test/bar/",
+			[]setParams{
+				{
+					"/home/test/foo/",
+					true,
+					map[storage.ExtrasKey]string{storage.ExtrasAllowWithSubdirs: "yes"},
+				},
+			},
+			setParams{
+				"/home/test/bar/",
+				true,
+				map[storage.ExtrasKey]string{storage.ExtrasAllowWithSubdirs: "yes"},
+			},
 			true,
-			map[storage.ExtrasKey]string{storage.ExtrasAllowWithSubdirs: "yes"},
-			map[string]bool{},
-			map[string]bool{},
-			map[string]bool{"/home/test/foo": true, "/home/test/bar": true},
+			[]string{},
 		},
 	}
 
@@ -1009,17 +1203,32 @@ func (s *storageSuite) TestSetBehaviorWithMatches(c *C) {
 		Permission: apparmor.MayReadPermission,
 	}
 
-	permissionEntries := st.MapsForUidAndSnapAndAppAndPermission(req.SubjectUid, req.Snap, req.App, "read")
-
 	for i, testCase := range cases {
-		permissionEntries.Allow = cloneAllowMap(testCase.initialAllow)
-		permissionEntries.AllowWithDir = cloneAllowMap(testCase.initialAllowWithDir)
-		permissionEntries.AllowWithSubdirs = cloneAllowMap(testCase.initialAllowWithSubdirs)
-		req.Path = testCase.path
-		_, result := st.Set(req, testCase.decision, testCase.extras)
-		c.Check(permissionEntries.Allow, DeepEquals, testCase.finalAllow, Commentf("\nTest case %d:\n%+v\nAllow does not match\nActual Allow: %+v\nActual AllowWithDir: %+v\nActualAllowWithSubdirs: %+v\nSet() returned: %v\n", i, testCase, permissionEntries.Allow, permissionEntries.AllowWithDir, permissionEntries.AllowWithSubdirs, result))
-		c.Check(permissionEntries.AllowWithDir, DeepEquals, testCase.finalAllowWithDir, Commentf("\nTest case %d:\n%+v\nAllowWithDir does not match\nActual Allow: %+v\nActual AllowWithDir: %+v\nActualAllowWithSubdirs: %+v\nSet() returned: %v\n", i, testCase, permissionEntries.Allow, permissionEntries.AllowWithDir, permissionEntries.AllowWithSubdirs, result))
-		c.Check(permissionEntries.AllowWithSubdirs, DeepEquals, testCase.finalAllowWithSubdirs, Commentf("\nTest case %d:\n%+v\nAllowWithSubdirs does not match\nActual Allow: %+v\nActual AllowWithDir: %+v\nActualAllowWithSubdirs: %+v\nSet() returned: %v\n", i, testCase, permissionEntries.Allow, permissionEntries.AllowWithDir, permissionEntries.AllowWithSubdirs, result))
+		for j, params := range testCase.initial {
+			req.Path = params.path
+			newDecision, modified, deleted, err := st.Set(req, params.decision, params.extras)
+			c.Assert(err, Equals, nil, Commentf("\nTest case %d:\nInitial setup failed on entry %d: Set() with parameters %+v returned error: %v", i, j, params, err))
+			c.Assert(newDecision != nil, Equals, true, Commentf("\nTest case %d:\nInitial setup failed on entry %d: Set() with parameters %+v did not add new decision", i, j, params))
+			c.Assert(len(modified), Equals, 0, Commentf("\nTest case %d:\nInitial setup failed on entry %d: Set() with parameters %+v modified an existing decision: %+v", i, j, params, modified))
+			c.Assert(len(modified), Equals, 0, Commentf("\nTest case %d:\nInitial setup failed on entry %d: Set() with parameters %+v deleted an existing decision: %+v", i, j, params, deleted))
+		}
+		req.Path = testCase.thenSet.path
+		newDecision, modified, deleted, err := st.Set(req, testCase.thenSet.decision, testCase.thenSet.extras)
+		c.Check(err, Equals, nil, Commentf("\nTest case %d:\n%+v\nSet() returned error: %v", i, testCase, err))
+		c.Check(newDecision != nil, Equals, testCase.shouldBeNew, Commentf("\nTest case %d:\n%+v\nNew decision not correctly added/skipped\nExpected new decision: %v\nActual new decision %+v", i, testCase, testCase.shouldBeNew, newDecision))
+		c.Check(len(modified), Equals, 0, Commentf("\nTest case %d:\n%+v\nSet() modified an existing decision: %+v", i, testCase, modified))
+		for _, p := range testCase.deletedPaths {
+			found := false
+			for _, deletedDecision := range deleted {
+				if deletedDecision.Path == p {
+					found = true
+					break
+				}
+			}
+			c.Check(found, Equals, true, Commentf("\nTest case %d:\n%+v\nDecision with path '%v' not found in deleted decisions: %+v", i, testCase, p, deleted))
+		}
+
+		st = storage.New()
 	}
 }
 
@@ -1177,30 +1386,30 @@ func (s *storageSuite) TestSetDecisionPruning(c *C) {
 
 func (s *storageSuite) TestFindChildrenInMap(c *C) {
 	cases := []struct {
-		origMap map[string]bool
+		origMap map[string]string
 		path    string
-		matches map[string]bool
+		matches map[string]string
 	}{
 		{
-			map[string]bool{"/home/test/foo": true, "/home/test/bar/baz.txt": false},
+			map[string]bool{"/home/test/foo": "a", "/home/test/bar/baz.txt": "b"},
 			"/home/test",
-			map[string]bool{"/home/test/foo": true},
+			map[string]bool{"/home/test/foo": "a"},
 		},
 		{
-			map[string]bool{"/home/test/foo": true, "/home/test/bar/baz.txt": false},
+			map[string]bool{"/home/test/foo": "a", "/home/test/bar/baz.txt": "b"},
 			"/home/test/bar",
-			map[string]bool{"/home/test/bar/baz.txt": false},
+			map[string]bool{"/home/test/bar/baz.txt": "b"},
 		},
 		{
-			map[string]bool{"/home/test": true, "/home/test/foo/file.txt": true, "/home/test/bar/baz.txt": false},
+			map[string]bool{"/home/test": "a", "/home/test/foo/file.txt": "b", "/home/test/bar/baz.txt": "c"},
 			"/home/test/foo",
-			map[string]bool{"/home/test/foo/file.txt": true},
+			map[string]bool{"/home/test/foo/file.txt": "b"},
 		},
 		{
 			// don't match exact path, only children
-			map[string]bool{"/home/test": true, "/home/test/foo": false, "/home/test/foo/file.txt": true, "/home/test/bar": false},
+			map[string]bool{"/home/test": "a", "/home/test/foo": "b", "/home/test/foo/file.txt": "c", "/home/test/bar": "d"},
 			"/home/test",
-			map[string]bool{"/home/test/foo": false, "/home/test/bar": false},
+			map[string]bool{"/home/test/foo": "b", "/home/test/bar": "d"},
 		},
 	}
 	for i, testCase := range cases {
@@ -1211,30 +1420,30 @@ func (s *storageSuite) TestFindChildrenInMap(c *C) {
 
 func (s *storageSuite) TestFindDescendantsInMap(c *C) {
 	cases := []struct {
-		origMap map[string]bool
+		origMap map[string]string
 		path    string
-		matches map[string]bool
+		matches map[string]string
 	}{
 		{
-			map[string]bool{"/home/test/foo": true, "/home/test/bar/baz.txt": false},
+			map[string]bool{"/home/test/foo": "a", "/home/test/bar/baz.txt": "b"},
 			"/home/test",
-			map[string]bool{"/home/test/foo": true, "/home/test/bar/baz.txt": false},
+			map[string]bool{"/home/test/foo": "a", "/home/test/bar/baz.txt": "b"},
 		},
 		{
-			map[string]bool{"/home/test/foo": true, "/home/test/bar/baz.txt": false},
+			map[string]bool{"/home/test/foo": "a", "/home/test/bar/baz.txt": "b"},
 			"/home/test/bar",
-			map[string]bool{"/home/test/bar/baz.txt": false},
+			map[string]bool{"/home/test/bar/baz.txt": "b"},
 		},
 		{
-			map[string]bool{"/home/test": true, "/home/test/foo/file.txt": true, "/home/test/bar/baz.txt": false},
+			map[string]bool{"/home/test": "a", "/home/test/foo/file.txt": "b", "/home/test/bar/baz.txt": "c"},
 			"/home/test/foo",
-			map[string]bool{"/home/test/foo/file.txt": true},
+			map[string]bool{"/home/test/foo/file.txt": "b"},
 		},
 		{
 			// don't match exact path, only descendants
-			map[string]bool{"/home/test": true, "/home/test/foo/file.txt": true, "/home/test/bar/baz.txt": false},
+			map[string]bool{"/home/test": "a", "/home/test/foo/file.txt": "b", "/home/test/bar/baz.txt": "c"},
 			"/home/test",
-			map[string]bool{"/home/test/foo/file.txt": true, "/home/test/bar/baz.txt": false},
+			map[string]bool{"/home/test/foo/file.txt": "b", "/home/test/bar/baz.txt": "c"},
 		},
 	}
 	for i, testCase := range cases {
@@ -1263,7 +1472,7 @@ func (s *storageSuite) TestPermissionsSimple(c *C) {
 	extras := map[storage.ExtrasKey]string{}
 	extras[storage.ExtrasAllowWithSubdirs] = "yes"
 	extras[storage.ExtrasDenyWithSubdirs] = "yes"
-	_, err = st.Set(req, allow, extras)
+	_, _, _, err = st.Set(req, allow, extras)
 	c.Assert(err, IsNil)
 
 	allowed, err = st.Get(req)
@@ -1278,7 +1487,7 @@ func (s *storageSuite) TestPermissionsSimple(c *C) {
 
 	// set that permission to false with the same path
 	allow = false
-	_, err = st.Set(req, allow, extras)
+	_, _, _, err = st.Set(req, allow, extras)
 	c.Assert(err, IsNil)
 
 	allowed, err = st.Get(req)
@@ -1296,7 +1505,7 @@ func (s *storageSuite) TestPermissionsSimple(c *C) {
 	req.Path = "/home/test/foo/bar/"
 	allow = false
 	extras[storage.ExtrasDenyExtraPerms] = "read,write"
-	_, err = st.Set(req, allow, extras)
+	_, _, _, err = st.Set(req, allow, extras)
 	c.Assert(err, IsNil)
 
 	allowed, err = st.Get(req)
@@ -1338,7 +1547,7 @@ func (s *storageSuite) TestPermissionsComplex(c *C) {
 	req.Path = "/home/test/foo/script.sh"
 	req.Permission = apparmor.MayReadPermission
 	extras[storage.ExtrasAllowExtraPerms] = "write,execute"
-	_, err := st.Set(req, allow, extras)
+	_, _, _, err := st.Set(req, allow, extras)
 	c.Assert(err, Equals, nil)
 
 	// TODO: add checks that deleted decisions returned by Set() are correct
@@ -1362,7 +1571,7 @@ func (s *storageSuite) TestPermissionsComplex(c *C) {
 	req.Permission = apparmor.MayWritePermission | apparmor.MayExecutePermission
 	extras[storage.ExtrasDenyExtraPerms] = "create"
 	extras[storage.ExtrasDenyWithDir] = "yes"
-	_, err = st.Set(req, allow, extras)
+	_, _, _, err = st.Set(req, allow, extras)
 	c.Assert(err, Equals, nil)
 
 	allowed, err = st.Get(req)
@@ -1399,7 +1608,7 @@ func (s *storageSuite) TestPermissionsComplex(c *C) {
 	req.Permission = apparmor.MayWritePermission
 	extras[storage.ExtrasAllowExtraPerms] = "read"
 	extras[storage.ExtrasAllowWithSubdirs] = "yes"
-	_, err = st.Set(req, allow, extras)
+	_, _, _, err = st.Set(req, allow, extras)
 	c.Assert(err, Equals, nil)
 
 	allowed, err = st.Get(req)
@@ -1511,7 +1720,7 @@ func (s *storageSuite) TestLoadSave(c *C) {
 		Permission: apparmor.MayReadPermission,
 	}
 	allow := true
-	_, err := st.Set(req, allow, nil)
+	_, _, _, err := st.Set(req, allow, nil)
 	c.Assert(err, IsNil)
 
 	// st2 will read DB from the previous storage
