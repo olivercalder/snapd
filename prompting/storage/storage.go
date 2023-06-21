@@ -14,6 +14,7 @@ import (
 	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/prompting/apparmor"
 	"github.com/snapcore/snapd/prompting/notifier"
+	"github.com/snapcore/snapd/strutil"
 )
 
 var ErrNoPermissions = errors.New("request has no permissions set")
@@ -545,6 +546,42 @@ func (pd *PromptsDB) insertAndPrune(permissionEntries *permissionDB, decision *S
 	return added, modifiedDeleted, err
 }
 
+func addDecisionPermissionToPermissionsMap(decision *StoredDecision, permission string, permissionsMap map[string]*permissionDB) error {
+	id := decision.Id
+	path := decision.Path
+	which := decision.AllowType
+	db, exists := permissionsMap[permission]
+	if !exists {
+		db = &permissionDB{
+			Allow:            make(map[string]string),
+			AllowWithDir:     make(map[string]string),
+			AllowWithSubdirs: make(map[string]string),
+		}
+		permissionsMap[permission] = db
+	}
+	switch which {
+	case Allow:
+		db.Allow[path] = id
+	case AllowWithDir:
+		db.AllowWithDir[path] = id
+	case AllowWithSubdirs:
+		db.AllowWithSubdirs[path] = id
+	default:
+		return ErrUnknownAllowType
+	}
+	return nil
+}
+
+func addDecisionToPermissionsMap(decision *StoredDecision, permissionsMap map[string]*permissionDB) error {
+	permissions := decision.Permissions
+	for _, permission := range permissions {
+		if err := addDecisionPermissionToPermissionsMap(decision, permission, permissionsMap); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func removeDecisionFromPermissionsMap(decision *StoredDecision, permissionsMap map[string]*permissionDB) error {
 	path := decision.Path
 	which := decision.AllowType
@@ -552,7 +589,7 @@ func removeDecisionFromPermissionsMap(decision *StoredDecision, permissionsMap m
 	for _, permission := range origPermissions {
 		db, exists := permissionsMap[permission]
 		if !exists {
-			return ErrPermissionNotFound
+			continue
 		}
 		switch which {
 		case Allow:
@@ -565,6 +602,37 @@ func removeDecisionFromPermissionsMap(decision *StoredDecision, permissionsMap m
 			return ErrUnknownAllowType
 		}
 		decision.Permissions = decision.Permissions[1:]
+	}
+	return nil
+}
+
+func (pd *PromptsDB) restoreModifiedDeleted(modifiedDeleted map[string]*StoredDecision) error {
+	// compute which permissions changed
+	// either call addDecisionToPermissionsMap and it will overwrite (unchanged) the existing permissions
+	// or compute a diff of permissions, make sure none were added, then only re-insert permissions which were removed
+	// or call removeDecisionFromPermissionsMap() followed by addDecisionToPermissionsMap()
+
+	for id, origDecision := range modifiedDeleted {
+		user := origDecision.User
+		snap := origDecision.Snap
+		app := origDecision.App
+		permissionsMap := pd.PermissionsMapForUidAndSnapAndApp(user, snap, app)
+		modifiedDecision, exists := pd.ById[id]
+		if !exists {
+			if err := addDecisionToPermissionsMap(origDecision, permissionsMap); err != nil {
+				return err
+			}
+			continue
+		}
+		for _, permission := range origDecision.Permissions {
+			if strutil.ListContains(modifiedDecision.Permissions, permission) {
+				continue
+			}
+			if err := addDecisionPermissionToPermissionsMap(origDecision, permission, permissionsMap); err != nil {
+				return err
+			}
+		}
+		pd.ById[id] = origDecision
 	}
 	return nil
 }
@@ -623,13 +691,11 @@ func (pd *PromptsDB) Set(req *notifier.Request, allow bool, extras map[ExtrasKey
 			// clean up this decision from permissions map, where it was partially added
 			permissionsMap := pd.PermissionsMapForUidAndSnapAndApp(req.SubjectUid, req.Snap, req.App)
 			_ = removeDecisionFromPermissionsMap(newDecision, permissionsMap) // ignore second error
-			// TODO: use modifiedDeleted to revert to previous state (must correct allow maps)
-			// Since permissions have only been removed from decisions in modifiedDeleted, it
-			// should be easy enough to extract permissions in modifiedDeleted[id] but not ById[id]
-			// and add the changed ones back in.
-			// What about timestamp and pruning after re-adding though?
-			modified, deleted := pd.extractModifiedDeleted(modifiedDeleted)
-			return nil, modified, deleted, err
+			if err = pd.restoreModifiedDeleted(modifiedDeleted); err != nil {
+				modified, deleted := pd.extractModifiedDeleted(modifiedDeleted)
+				return nil, modified, deleted, err
+			}
+			return nil, make([]string, 0), make([]string, 0), err
 		}
 		if skipNewDecision {
 			continue
@@ -642,13 +708,11 @@ func (pd *PromptsDB) Set(req *notifier.Request, allow bool, extras map[ExtrasKey
 			// clean up this decision from permissions map, where it was partially added
 			permissionsMap := pd.PermissionsMapForUidAndSnapAndApp(req.SubjectUid, req.Snap, req.App)
 			_ = removeDecisionFromPermissionsMap(newDecision, permissionsMap) // ignore second error
-			// TODO: use modifiedDeleted to revert to previous state (must correct allow maps)
-			// Since permissions have only been removed from decisions in modifiedDeleted, it
-			// should be easy enough to extract permissions in modifiedDeleted[id] but not ById[id]
-			// and add the changed ones back in.
-			// What about timestamp and pruning after re-adding though?
-			modified, deleted := pd.extractModifiedDeleted(modifiedDeleted)
-			return nil, modified, deleted, err
+			if err = pd.restoreModifiedDeleted(modifiedDeleted); err != nil {
+				modified, deleted := pd.extractModifiedDeleted(modifiedDeleted)
+				return nil, modified, deleted, err
+			}
+			return nil, make([]string, 0), make([]string, 0), err
 		}
 
 		if actuallyAdded {
