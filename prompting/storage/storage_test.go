@@ -1391,25 +1391,25 @@ func (s *storageSuite) TestFindChildrenInMap(c *C) {
 		matches map[string]string
 	}{
 		{
-			map[string]bool{"/home/test/foo": "a", "/home/test/bar/baz.txt": "b"},
+			map[string]string{"/home/test/foo": "a", "/home/test/bar/baz.txt": "b"},
 			"/home/test",
-			map[string]bool{"/home/test/foo": "a"},
+			map[string]string{"/home/test/foo": "a"},
 		},
 		{
-			map[string]bool{"/home/test/foo": "a", "/home/test/bar/baz.txt": "b"},
+			map[string]string{"/home/test/foo": "a", "/home/test/bar/baz.txt": "b"},
 			"/home/test/bar",
-			map[string]bool{"/home/test/bar/baz.txt": "b"},
+			map[string]string{"/home/test/bar/baz.txt": "b"},
 		},
 		{
-			map[string]bool{"/home/test": "a", "/home/test/foo/file.txt": "b", "/home/test/bar/baz.txt": "c"},
+			map[string]string{"/home/test": "a", "/home/test/foo/file.txt": "b", "/home/test/bar/baz.txt": "c"},
 			"/home/test/foo",
-			map[string]bool{"/home/test/foo/file.txt": "b"},
+			map[string]string{"/home/test/foo/file.txt": "b"},
 		},
 		{
 			// don't match exact path, only children
-			map[string]bool{"/home/test": "a", "/home/test/foo": "b", "/home/test/foo/file.txt": "c", "/home/test/bar": "d"},
+			map[string]string{"/home/test": "a", "/home/test/foo": "b", "/home/test/foo/file.txt": "c", "/home/test/bar": "d"},
 			"/home/test",
-			map[string]bool{"/home/test/foo": "b", "/home/test/bar": "d"},
+			map[string]string{"/home/test/foo": "b", "/home/test/bar": "d"},
 		},
 	}
 	for i, testCase := range cases {
@@ -1425,25 +1425,25 @@ func (s *storageSuite) TestFindDescendantsInMap(c *C) {
 		matches map[string]string
 	}{
 		{
-			map[string]bool{"/home/test/foo": "a", "/home/test/bar/baz.txt": "b"},
+			map[string]string{"/home/test/foo": "a", "/home/test/bar/baz.txt": "b"},
 			"/home/test",
-			map[string]bool{"/home/test/foo": "a", "/home/test/bar/baz.txt": "b"},
+			map[string]string{"/home/test/foo": "a", "/home/test/bar/baz.txt": "b"},
 		},
 		{
-			map[string]bool{"/home/test/foo": "a", "/home/test/bar/baz.txt": "b"},
+			map[string]string{"/home/test/foo": "a", "/home/test/bar/baz.txt": "b"},
 			"/home/test/bar",
-			map[string]bool{"/home/test/bar/baz.txt": "b"},
+			map[string]string{"/home/test/bar/baz.txt": "b"},
 		},
 		{
-			map[string]bool{"/home/test": "a", "/home/test/foo/file.txt": "b", "/home/test/bar/baz.txt": "c"},
+			map[string]string{"/home/test": "a", "/home/test/foo/file.txt": "b", "/home/test/bar/baz.txt": "c"},
 			"/home/test/foo",
-			map[string]bool{"/home/test/foo/file.txt": "b"},
+			map[string]string{"/home/test/foo/file.txt": "b"},
 		},
 		{
 			// don't match exact path, only descendants
-			map[string]bool{"/home/test": "a", "/home/test/foo/file.txt": "b", "/home/test/bar/baz.txt": "c"},
+			map[string]string{"/home/test": "a", "/home/test/foo/file.txt": "b", "/home/test/bar/baz.txt": "c"},
 			"/home/test",
-			map[string]bool{"/home/test/foo/file.txt": "b", "/home/test/bar/baz.txt": "c"},
+			map[string]string{"/home/test/foo/file.txt": "b", "/home/test/bar/baz.txt": "c"},
 		},
 	}
 	for i, testCase := range cases {
