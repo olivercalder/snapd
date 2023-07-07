@@ -9,6 +9,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check if CLA signed
-        uses: olivercalder/has-signed-canonical-cla@v1.1.5-debug
+        uses: olivercalder/has-signed-canonical-cla@v1.2.1-debug
         with:
           accept-existing-contributors: true
