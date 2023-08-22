@@ -167,7 +167,7 @@ func (l *Listener) waitAndRespond(req *Request, msg *notify.MsgNotificationFile)
 	// XXX: should both error fields be zeroed?
 	resp.MsgNotification.Error = 0
 	// XXX: flags 1 means not-cache the reply, make this a proper named flag
-	resp.MsgNotification.Flags = 1
+	resp.MsgNotification.NoCache = 1
 	if allow := <-req.YesNo; allow {
 		resp.Allow = msg.Allow | msg.Deny
 		resp.Deny = 0
