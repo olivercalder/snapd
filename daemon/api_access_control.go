@@ -33,22 +33,16 @@ var (
 		Path:        "/v2/access-control/rules",
 		GET:         getRules,
 		POST:        postRules,
-		ReadAccess:  promptingOpenAccess{},
-		WriteAccess: promptingOpenAccess{},
-		// TODO: make this authenticatedAccess{Polkit: polkitActionPrompting}
-		// Need to add polkitActionPrompting to daemon/api.go and register
-		// prompt UI clients with it.
+		ReadAccess:  interfaceOpenAccess{Interface: "snap-prompting-control"},
+		WriteAccess: interfaceAuthenticatedAccess{Interface: "snap-prompting-control", Polkit: polkitActionManage},
 	}
 
 	accessRuleCmd = &Command{
 		Path:        "/v2/access-control/rules/{id}",
 		GET:         getRule,
 		POST:        postRule,
-		ReadAccess:  promptingOpenAccess{},
-		WriteAccess: promptingOpenAccess{},
-		// TODO: make these authenticatedAccess{Polkit: polkitActionPrompting}
-		// Need to add polkitActionPrompting to daemon/api.go and register
-		// prompt UI clients with it.
+		ReadAccess:  interfaceOpenAccess{Interface: "snap-prompting-control"},
+		WriteAccess: interfaceAuthenticatedAccess{Interface: "snap-prompting-control", Polkit: polkitActionManage},
 	}
 )
 
