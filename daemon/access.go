@@ -157,10 +157,11 @@ func (ac snapAccess) CheckAccess(d *Daemon, r *http.Request, ucred *ucrednet, us
 
 var (
 	cgroupSnapNameFromPid     = cgroup.SnapNameFromPid
-	requireInterfaceApiAccess = requireInterfaceApiAccessImpl
+	requireThemeApiAccess     = requireThemeApiAccessImpl
+	requirePromptingApiAccess = requirePromptingApiAccessImpl
 )
 
-func requireInterfaceApiAccessImpl(d *Daemon, ucred *ucrednet, interfaceName string) *apiError {
+func requireThemeApiAccessImpl(d *Daemon, ucred *ucrednet) *apiError {
 	if ucred == nil {
 		return Forbidden("access denied")
 	}
@@ -176,7 +177,8 @@ func requireInterfaceApiAccessImpl(d *Daemon, ucred *ucrednet, interfaceName str
 		return Forbidden("access denied")
 	}
 
-	// Access on snapd-snap.socket requires a connected plug.
+	// Access on snapd-snap.socket requires a connected
+	// snap-themes-control plug.
 	snapName, err := cgroupSnapNameFromPid(int(ucred.Pid))
 	if err != nil {
 		return Forbidden("could not determine snap name for pid: %s", err)
@@ -190,7 +192,7 @@ func requireInterfaceApiAccessImpl(d *Daemon, ucred *ucrednet, interfaceName str
 		return Forbidden("internal error: cannot get connections: %s", err)
 	}
 	for refStr, connState := range conns {
-		if !connState.Active() || connState.Interface != interfaceName {
+		if !connState.Active() || connState.Interface != "snap-themes-control" {
 			continue
 		}
 		connRef, err := interfaces.ParseConnRef(refStr)
@@ -204,31 +206,28 @@ func requireInterfaceApiAccessImpl(d *Daemon, ucred *ucrednet, interfaceName str
 	return Forbidden("access denied")
 }
 
-// interfaceOpenAccess behaves like openAccess, but allows requests from
-// snapd-snap.socket for snaps that plug the provided interface.
-type interfaceOpenAccess struct {
-	Interface string
+// themesOpenAccess behaves like openAccess, but allows requests from
+// snapd-snap.socket for snaps that plug snap-themes-control.
+type themesOpenAccess struct{}
+
+func (ac themesOpenAccess) CheckAccess(d *Daemon, r *http.Request, ucred *ucrednet, user *auth.UserState) *apiError {
+	return requireThemeApiAccess(d, ucred)
 }
 
-func (ac interfaceOpenAccess) CheckAccess(d *Daemon, r *http.Request, ucred *ucrednet, user *auth.UserState) *apiError {
-	return requireInterfaceApiAccess(d, ucred, ac.Interface)
+// themesAuthenticatedAccess behaves like authenticatedAccess, but
+// allows requests from snapd-snap.socket for snaps that plug
+// snap-themes-control.
+type themesAuthenticatedAccess struct {
+	Polkit string
 }
 
-// interfaceAuthenticatedAccess behaves like authenticatedAccess, but
-// allows requests from snapd-snap.socket that plug the provided
-// interface.
-type interfaceAuthenticatedAccess struct {
-	Interface string
-	Polkit    string
-}
-
-func (ac interfaceAuthenticatedAccess) CheckAccess(d *Daemon, r *http.Request, ucred *ucrednet, user *auth.UserState) *apiError {
-	if rspe := requireInterfaceApiAccess(d, ucred, ac.Interface); rspe != nil {
+func (ac themesAuthenticatedAccess) CheckAccess(d *Daemon, r *http.Request, ucred *ucrednet, user *auth.UserState) *apiError {
+	if rspe := requireThemeApiAccess(d, ucred); rspe != nil {
 		return rspe
 	}
 
 	// check as well that we have admin permission to proceed with
-	// the operation
+	// the theme operation
 	if user != nil {
 		return nil
 	}
@@ -245,4 +244,32 @@ func (ac interfaceAuthenticatedAccess) CheckAccess(d *Daemon, r *http.Request, u
 	}
 
 	return Unauthorized("access denied")
+}
+
+func requirePromptingApiAccessImpl(d *Daemon, ucred *ucrednet) *apiError {
+	if ucred == nil {
+		return Forbidden("access denied")
+	}
+
+	switch ucred.Socket {
+	case dirs.SnapdSocket:
+		// Allow access on main snapd.socket
+		return nil
+
+	case dirs.SnapSocket:
+		// Handled below
+	default:
+		return Forbidden("access denied")
+	}
+
+	// TODO: Require snap-prompting-control plug.
+	return nil
+}
+
+// promptingOpenAccess behaves like openAccess, but allows requests from
+// snapd-snap.socket for snaps that plug snap-prompting-control.
+type promptingOpenAccess struct{}
+
+func (ac promptingOpenAccess) CheckAccess(d *Daemon, r *http.Request, ucred *ucrednet, user *auth.UserState) *apiError {
+	return requirePromptingApiAccess(d, ucred)
 }

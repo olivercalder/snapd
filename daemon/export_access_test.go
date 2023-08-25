@@ -28,12 +28,12 @@ import (
 type (
 	AccessChecker = accessChecker
 
-	OpenAccess                   = openAccess
-	AuthenticatedAccess          = authenticatedAccess
-	RootAccess                   = rootAccess
-	SnapAccess                   = snapAccess
-	InterfaceOpenAccess          = interfaceOpenAccess
-	InterfaceAuthenticatedAccess = interfaceAuthenticatedAccess
+	OpenAccess                = openAccess
+	AuthenticatedAccess       = authenticatedAccess
+	RootAccess                = rootAccess
+	SnapAccess                = snapAccess
+	ThemesOpenAccess          = themesOpenAccess
+	ThemesAuthenticatedAccess = themesAuthenticatedAccess
 )
 
 var CheckPolkitActionImpl = checkPolkitActionImpl
@@ -62,12 +62,12 @@ func MockCgroupSnapNameFromPid(new func(pid int) (string, error)) (restore func(
 	}
 }
 
-var RequireInterfaceApiAccessImpl = requireInterfaceApiAccessImpl
+var RequireThemeApiAccessImpl = requireThemeApiAccessImpl
 
-func MockRequireInterfaceApiAccess(new func(d *Daemon, ucred *ucrednet, interfaceName string) *apiError) (restore func()) {
-	old := requireInterfaceApiAccess
-	requireInterfaceApiAccess = new
+func MockRequireThemeApiAccess(new func(d *Daemon, ucred *ucrednet) *apiError) (restore func()) {
+	old := requireThemeApiAccess
+	requireThemeApiAccess = new
 	return func() {
-		requireInterfaceApiAccess = old
+		requireThemeApiAccess = old
 	}
 }
