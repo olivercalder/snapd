@@ -18,7 +18,7 @@ type PromptRequest struct {
 	App         string                  `json:"app"`
 	Path        string                  `json:"path"`
 	Permissions []common.PermissionType `json:"permissions"`
-	replyChan   chan bool
+	replyChan   chan bool               `json:"-"`
 }
 
 type userRequestDB struct {
