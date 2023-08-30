@@ -166,6 +166,10 @@ func (p *Prompting) PostRequest(userId int, requestId string, reply *PromptReply
 		return nil, err
 	}
 
+	if reply.Lifespan == common.LifespanSingle {
+		return make([]string, 0), nil
+	}
+
 	// Create new rule based on the reply.
 	newRule, err := p.rules.CreateAccessRule(userId, req.Snap, req.App, reply.PathPattern, reply.Outcome, reply.Lifespan, reply.Duration, reply.Permissions)
 	if err != nil {
