@@ -38,6 +38,7 @@ type snapEntry struct {
 
 type followRuleEntry struct {
 	snapEntries map[string]*snapEntry
+	respWriters map[*FollowRulesSeqResponseWriter]bool
 	lock        sync.Mutex
 }
 
@@ -124,6 +125,7 @@ func (p *Prompting) followRuleEntryForUserOrInit(userId int) *followRuleEntry {
 	if !exists {
 		entry = &followRuleEntry{
 			snapEntries: make(map[string]*snapEntry),
+			respWriters: make(map[*FollowRulesSeqResponseWriter]bool),
 		}
 		p.followRuleEntries[userId] = entry
 	}
@@ -186,29 +188,14 @@ func (p *Prompting) RegisterAndPopulateFollowRulesChan(userId int, snap string, 
 
 	var outstandingRules []*accessrules.AccessRule
 
-	sEntry := entry.snapEntries[snap]
-	if sEntry == nil {
-		sEntry = &snapEntry{
-			respWriters: make(map[*FollowRulesSeqResponseWriter]bool),
-			appEntries:  make(map[string]*appEntry),
-		}
-		entry.snapEntries[snap] = sEntry
-	}
 	// The following is ugly, but while addresses of structs may change,
 	// addresses of entries containing maps should not, so it is safe to
 	// retain those entries, rather than storing their embedded maps in a
 	// common variable.
-	if app != "" {
-		saEntry := sEntry.appEntries[app]
-		if saEntry == nil {
-			saEntry = &appEntry{
-				respWriters: make(map[*FollowRulesSeqResponseWriter]bool),
-			}
-			sEntry.appEntries[app] = saEntry
-		}
-		saEntry.respWriters[respWriter] = true
+	if snap == "" {
+		entry.respWriters[respWriter] = true
 		// Start goroutine to wait until respWriter should be removed
-		// from saEntry.respWriters, either because it has been stopped
+		// from entry.respWriters, either because it has been stopped
 		// or the tomb is dying.
 		p.tomb.Go(func() error {
 			select {
@@ -218,27 +205,61 @@ func (p *Prompting) RegisterAndPopulateFollowRulesChan(userId int, snap string, 
 			}
 			entry.lock.Lock()
 			defer entry.lock.Unlock()
-			delete(saEntry.respWriters, respWriter)
+			delete(entry.respWriters, respWriter)
 			return nil
 		})
-		outstandingRules = p.rules.RulesForSnapApp(userId, snap, app)
+		outstandingRules = p.rules.Rules(userId)
 	} else {
-		sEntry.respWriters[respWriter] = true
-		// Start goroutine to wait until respWriter should be removed
-		// from sEntry.respWriters, either because it has been stopped
-		// or the tomb is dying.
-		p.tomb.Go(func() error {
-			select {
-			case <-p.tomb.Dying():
-				respWriter.Stop()
-			case <-respWriter.Stopping():
+		sEntry := entry.snapEntries[snap]
+		if sEntry == nil {
+			sEntry = &snapEntry{
+				respWriters: make(map[*FollowRulesSeqResponseWriter]bool),
+				appEntries:  make(map[string]*appEntry),
 			}
-			entry.lock.Lock()
-			defer entry.lock.Unlock()
-			delete(sEntry.respWriters, respWriter)
-			return nil
-		})
-		outstandingRules = p.rules.RulesForSnap(userId, snap)
+			entry.snapEntries[snap] = sEntry
+		}
+		if app == "" {
+			sEntry.respWriters[respWriter] = true
+			// Start goroutine to wait until respWriter should be removed
+			// from sEntry.respWriters, either because it has been stopped
+			// or the tomb is dying.
+			p.tomb.Go(func() error {
+				select {
+				case <-p.tomb.Dying():
+					respWriter.Stop()
+				case <-respWriter.Stopping():
+				}
+				entry.lock.Lock()
+				defer entry.lock.Unlock()
+				delete(sEntry.respWriters, respWriter)
+				return nil
+			})
+			outstandingRules = p.rules.RulesForSnap(userId, snap)
+		} else {
+			saEntry := sEntry.appEntries[app]
+			if saEntry == nil {
+				saEntry = &appEntry{
+					respWriters: make(map[*FollowRulesSeqResponseWriter]bool),
+				}
+				sEntry.appEntries[app] = saEntry
+			}
+			saEntry.respWriters[respWriter] = true
+			// Start goroutine to wait until respWriter should be removed
+			// from saEntry.respWriters, either because it has been stopped
+			// or the tomb is dying.
+			p.tomb.Go(func() error {
+				select {
+				case <-p.tomb.Dying():
+					respWriter.Stop()
+				case <-respWriter.Stopping():
+				}
+				entry.lock.Lock()
+				defer entry.lock.Unlock()
+				delete(saEntry.respWriters, respWriter)
+				return nil
+			})
+			outstandingRules = p.rules.RulesForSnapApp(userId, snap, app)
+		}
 	}
 
 	p.tomb.Go(func() error {
@@ -290,6 +311,16 @@ func (p *Prompting) notifyNewRule(userId int, newRule *accessrules.AccessRule) {
 		// initial rules.
 		entry.lock.Lock()
 		defer entry.lock.Unlock()
+
+		for writer := range entry.respWriters {
+			// Don't want to block while holding lock, in case one
+			// of the requestsChan entries is full.
+			p.tomb.Go(func() error {
+				writer.WriteRule(newRule)
+				return nil
+			})
+		}
+
 		sEntry := entry.snapEntries[newRule.Snap]
 		if sEntry == nil {
 			return nil
@@ -302,6 +333,7 @@ func (p *Prompting) notifyNewRule(userId int, newRule *accessrules.AccessRule) {
 				return nil
 			})
 		}
+
 		saEntry := sEntry.appEntries[newRule.App]
 		if saEntry == nil {
 			return nil
@@ -314,6 +346,7 @@ func (p *Prompting) notifyNewRule(userId int, newRule *accessrules.AccessRule) {
 				return nil
 			})
 		}
+
 		return nil
 	})
 }
