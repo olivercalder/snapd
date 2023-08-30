@@ -130,7 +130,7 @@ func Register() (*Listener, error) {
 	return listener, nil
 }
 
-func (l *Listener) decodeAndDispatchRequest(buf []byte, tomb *tomb.Tomb) error {
+func (l *Listener) decodeAndDispatchRequest(buf []byte, t *tomb.Tomb) error {
 	var nmsg notify.MsgNotification
 	if err := nmsg.UnmarshalBinary(buf); err != nil {
 		return err
@@ -152,10 +152,7 @@ func (l *Listener) decodeAndDispatchRequest(buf []byte, tomb *tomb.Tomb) error {
 			// log.Printf("notification request: %#v\n", fmsg)
 			req := newRequest(l, &fmsg)
 			l.R <- req
-			tomb.Go(func() error {
-				l.waitAndRespond(req, &fmsg)
-				return nil
-			})
+			l.waitAndRespond(req, &fmsg, t)
 		default:
 			return fmt.Errorf("unsupported mediation class: %v", omsg.Class)
 		}
@@ -165,25 +162,36 @@ func (l *Listener) decodeAndDispatchRequest(buf []byte, tomb *tomb.Tomb) error {
 	return nil
 }
 
-func (l *Listener) waitAndRespond(req *Request, msg *notify.MsgNotificationFile) {
-	resp := notify.ResponseForRequest(&msg.MsgNotification)
-	resp.MsgNotification.Error = 0 // ignored in responses
-	resp.MsgNotification.NoCache = 1
-	if allow := <-req.YesNo; allow {
-		resp.Allow = msg.Allow | msg.Deny
-		resp.Deny = 0
-		resp.Error = 0
-	} else {
-		resp.Allow = 0
-		resp.Deny = msg.Deny
-		resp.Error = msg.Error
-		// msg.Error is field from MsgNotificationResponse, and is unused.
-		// msg.MsgNotification.Error is also ignored in responses.
-	}
-	//log.Printf("notification response: %#v\n", resp)
-	if err := l.encodeAndSendResponse(&resp); err != nil {
-		l.fail(err)
-	}
+func (l *Listener) waitAndRespond(req *Request, msg *notify.MsgNotificationFile, t *tomb.Tomb) {
+	t.Go(func() error {
+		resp := notify.ResponseForRequest(&msg.MsgNotification)
+		resp.MsgNotification.Error = 0 // ignored in responses
+		resp.MsgNotification.NoCache = 1
+		var allow bool
+		select {
+		case a := <-req.YesNo:
+			allow = a
+		case <-t.Dying():
+			// Deny all requests when tomb is dying
+			allow = false
+		}
+		if allow {
+			resp.Allow = msg.Allow | msg.Deny
+			resp.Deny = 0
+			resp.Error = 0
+		} else {
+			resp.Allow = 0
+			resp.Deny = msg.Deny
+			resp.Error = msg.Error
+			// msg.Error is field from MsgNotificationResponse, and is unused.
+			// msg.MsgNotification.Error is also ignored in responses.
+		}
+		//log.Printf("notification response: %#v\n", resp)
+		if err := l.encodeAndSendResponse(&resp); err != nil {
+			l.fail(err)
+		}
+		return nil
+	})
 }
 
 func (l *Listener) encodeAndSendResponse(resp *notify.MsgNotificationResponse) error {
@@ -196,7 +204,7 @@ func (l *Listener) encodeAndSendResponse(resp *notify.MsgNotificationResponse) e
 	return err
 }
 
-func (l *Listener) runOnce(tomb *tomb.Tomb) error {
+func (l *Listener) runOnce(t *tomb.Tomb) error {
 	// XXX: Wait must return immediately once epoll is closed.
 	events, err := l.poll.Wait()
 	if err != nil {
@@ -215,7 +223,7 @@ func (l *Listener) runOnce(tomb *tomb.Tomb) error {
 				if err != nil {
 					return err
 				}
-				if err := l.decodeAndDispatchRequest(buf, tomb); err != nil {
+				if err := l.decodeAndDispatchRequest(buf, t); err != nil {
 					return err
 				}
 			}
@@ -225,10 +233,10 @@ func (l *Listener) runOnce(tomb *tomb.Tomb) error {
 }
 
 // Run reads and dispatches kernel requests until stopped.
-func (l *Listener) Run(tomb *tomb.Tomb) {
+func (l *Listener) Run(t *tomb.Tomb) {
 	// TODO: allow the run to stop
 	for {
-		if err := l.runOnce(tomb); err != nil {
+		if err := l.runOnce(t); err != nil {
 			l.fail(err)
 			break
 		}
