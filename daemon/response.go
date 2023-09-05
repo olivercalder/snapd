@@ -372,7 +372,7 @@ func (fr *followRequestsSeqResponse) ServeHTTP(w http.ResponseWriter, r *http.Re
 	}
 
 	if err != nil && err != io.EOF {
-		writer.WriteByte('\x1E')
+		writer.WriteByte(0x1E) // RS -- see ascii(7), and RFC7464
 		marshalled, _ := json.Marshal(map[string]error{"error": err})
 		writer.Write(marshalled)
 		writer.WriteByte('\n')
@@ -421,7 +421,7 @@ func (fr *followRulesSeqResponse) ServeHTTP(w http.ResponseWriter, r *http.Reque
 	}
 
 	if err != nil && err != io.EOF {
-		writer.WriteByte('\x1E')
+		writer.WriteByte(0x1E) // RS -- see ascii(7), and RFC7464
 		marshalled, _ := json.Marshal(map[string]error{"error": err})
 		writer.Write(marshalled)
 		writer.WriteByte('\n')
