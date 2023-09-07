@@ -2,6 +2,7 @@ package apparmorprompting
 
 import (
 	"fmt"
+	"sync"
 
 	"gopkg.in/tomb.v2"
 
@@ -21,15 +22,42 @@ type Interface interface {
 	Stop() error
 }
 
+type followReqEntry struct {
+	respWriters map[*FollowRequestsSeqResponseWriter]bool
+	lock        sync.Mutex
+}
+
+type appEntry struct {
+	respWriters map[*FollowRulesSeqResponseWriter]bool
+}
+
+type snapEntry struct {
+	respWriters map[*FollowRulesSeqResponseWriter]bool
+	appEntries  map[string]*appEntry
+}
+
+type followRuleEntry struct {
+	snapEntries map[string]*snapEntry
+	respWriters map[*FollowRulesSeqResponseWriter]bool
+	lock        sync.Mutex
+}
+
 type Prompting struct {
-	tomb     tomb.Tomb
-	listener *listener.Listener
-	requests *promptrequests.RequestDB
-	rules    *accessrules.AccessRuleDB
+	tomb              tomb.Tomb
+	listener          *listener.Listener
+	requests          *promptrequests.RequestDB
+	rules             *accessrules.AccessRuleDB
+	followReqEntries  map[int]*followReqEntry
+	followReqLock     sync.Mutex
+	followRuleEntries map[int]*followRuleEntry
+	followRuleLock    sync.Mutex
 }
 
 func New() Interface {
-	p := &Prompting{}
+	p := &Prompting{
+		followReqEntries:  make(map[int]*followReqEntry),
+		followRuleEntries: make(map[int]*followRuleEntry),
+	}
 	return p
 }
 
@@ -57,9 +85,275 @@ func (p *Prompting) disconnect() error {
 	return nil
 }
 
+func (p *Prompting) followReqEntryForUser(userId int) *followReqEntry {
+	p.followReqLock.Lock()
+	defer p.followReqLock.Unlock()
+	entry, exists := p.followReqEntries[userId]
+	if !exists {
+		return nil
+	}
+	return entry
+}
+
+func (p *Prompting) followReqEntryForUserOrInit(userId int) *followReqEntry {
+	p.followReqLock.Lock()
+	defer p.followReqLock.Unlock()
+	entry, exists := p.followReqEntries[userId]
+	if !exists {
+		entry = &followReqEntry{
+			respWriters: make(map[*FollowRequestsSeqResponseWriter]bool),
+		}
+		p.followReqEntries[userId] = entry
+	}
+	return entry
+}
+
+func (p *Prompting) followRuleEntryForUser(userId int) *followRuleEntry {
+	p.followRuleLock.Lock()
+	defer p.followRuleLock.Unlock()
+	entry, exists := p.followRuleEntries[userId]
+	if !exists {
+		return nil
+	}
+	return entry
+}
+
+func (p *Prompting) followRuleEntryForUserOrInit(userId int) *followRuleEntry {
+	p.followRuleLock.Lock()
+	defer p.followRuleLock.Unlock()
+	entry, exists := p.followRuleEntries[userId]
+	if !exists {
+		entry = &followRuleEntry{
+			snapEntries: make(map[string]*snapEntry),
+			respWriters: make(map[*FollowRulesSeqResponseWriter]bool),
+		}
+		p.followRuleEntries[userId] = entry
+	}
+	return entry
+}
+
+func (p *Prompting) RegisterAndPopulateFollowRequestsChan(userId int, requestsCh chan *promptrequests.PromptRequest) *FollowRequestsSeqResponseWriter {
+	userId = userOverride // TODO: undo this! This is just for debugging
+
+	respWriter := newFollowRequestsSeqResponseWriter(requestsCh)
+
+	entry := p.followReqEntryForUserOrInit(userId)
+
+	entry.lock.Lock()
+	defer entry.lock.Unlock()
+	entry.respWriters[respWriter] = true
+
+	// Start goroutine to wait until respWriter should be removed from
+	// entry.respWriters, either because it has been stopped or the tomb
+	// is dying.
+	p.tomb.Go(func() error {
+		select {
+		case <-p.tomb.Dying():
+			respWriter.Stop()
+		case <-respWriter.Stopping():
+		}
+		entry.lock.Lock()
+		defer entry.lock.Unlock()
+		delete(entry.respWriters, respWriter)
+		return nil
+	})
+
+	// Record current outstanding requests before unlocking.
+	// This way, no new requests (which are sent out independently) can
+	// preempt getting current requests and thus be sent here as well,
+	// causing duplicate requests.
+	outstandingRequests := p.requests.Requests(userId)
+	p.tomb.Go(func() error {
+		// This could block if the chan is filled, so separate goroutine
+		for _, req := range outstandingRequests {
+			if !respWriter.WriteRequest(req) {
+				// respWriter has been stopped
+				break
+			}
+		}
+		return nil
+	})
+	return respWriter
+}
+
+func (p *Prompting) RegisterAndPopulateFollowRulesChan(userId int, snap string, app string, rulesCh chan *accessrules.AccessRule) *FollowRulesSeqResponseWriter {
+	userId = userOverride // TODO: undo this! This is just for debugging
+
+	respWriter := newFollowRulesSeqResponseWriter(rulesCh)
+
+	entry := p.followRuleEntryForUserOrInit(userId)
+
+	entry.lock.Lock()
+	defer entry.lock.Unlock()
+
+	var outstandingRules []*accessrules.AccessRule
+
+	// The following is ugly, but while addresses of structs may change,
+	// addresses of entries containing maps should not, so it is safe to
+	// retain those entries, rather than storing their embedded maps in a
+	// common variable.
+	if snap == "" {
+		entry.respWriters[respWriter] = true
+		// Start goroutine to wait until respWriter should be removed
+		// from entry.respWriters, either because it has been stopped
+		// or the tomb is dying.
+		p.tomb.Go(func() error {
+			select {
+			case <-p.tomb.Dying():
+				respWriter.Stop()
+			case <-respWriter.Stopping():
+			}
+			entry.lock.Lock()
+			defer entry.lock.Unlock()
+			delete(entry.respWriters, respWriter)
+			return nil
+		})
+		outstandingRules = p.rules.Rules(userId)
+	} else {
+		sEntry := entry.snapEntries[snap]
+		if sEntry == nil {
+			sEntry = &snapEntry{
+				respWriters: make(map[*FollowRulesSeqResponseWriter]bool),
+				appEntries:  make(map[string]*appEntry),
+			}
+			entry.snapEntries[snap] = sEntry
+		}
+		if app == "" {
+			sEntry.respWriters[respWriter] = true
+			// Start goroutine to wait until respWriter should be removed
+			// from sEntry.respWriters, either because it has been stopped
+			// or the tomb is dying.
+			p.tomb.Go(func() error {
+				select {
+				case <-p.tomb.Dying():
+					respWriter.Stop()
+				case <-respWriter.Stopping():
+				}
+				entry.lock.Lock()
+				defer entry.lock.Unlock()
+				delete(sEntry.respWriters, respWriter)
+				return nil
+			})
+			outstandingRules = p.rules.RulesForSnap(userId, snap)
+		} else {
+			saEntry := sEntry.appEntries[app]
+			if saEntry == nil {
+				saEntry = &appEntry{
+					respWriters: make(map[*FollowRulesSeqResponseWriter]bool),
+				}
+				sEntry.appEntries[app] = saEntry
+			}
+			saEntry.respWriters[respWriter] = true
+			// Start goroutine to wait until respWriter should be removed
+			// from saEntry.respWriters, either because it has been stopped
+			// or the tomb is dying.
+			p.tomb.Go(func() error {
+				select {
+				case <-p.tomb.Dying():
+					respWriter.Stop()
+				case <-respWriter.Stopping():
+				}
+				entry.lock.Lock()
+				defer entry.lock.Unlock()
+				delete(saEntry.respWriters, respWriter)
+				return nil
+			})
+			outstandingRules = p.rules.RulesForSnapApp(userId, snap, app)
+		}
+	}
+
+	p.tomb.Go(func() error {
+		// This could block if the chan is filled, so separate goroutine
+		for _, req := range outstandingRules {
+			if !respWriter.WriteRule(req) {
+				// respWriter has been stopped
+				break
+			}
+		}
+		return nil
+	})
+	return respWriter
+}
+
+// Notify all open connections for requests with the given userId that a new
+// request has been received.
+func (p *Prompting) notifyNewRequest(userId int, newRequest *promptrequests.PromptRequest) {
+	p.tomb.Go(func() error {
+		entry := p.followReqEntryForUser(userId)
+		if entry == nil {
+			return nil
+		}
+		// Lock so that new incoming request is not mixed in with the
+		// initial outstanding requests.
+		entry.lock.Lock()
+		defer entry.lock.Unlock()
+		for writer := range entry.respWriters {
+			// Don't want to block while holding lock, in case one
+			// of the requestsChan entries is full.
+			p.tomb.Go(func() error {
+				writer.WriteRequest(newRequest)
+				return nil
+			})
+		}
+		return nil
+	})
+}
+
+// Notify all open connections for rules with the given userId that a new
+// rule has been received.
+func (p *Prompting) notifyNewRule(userId int, newRule *accessrules.AccessRule) {
+	p.tomb.Go(func() error {
+		entry := p.followRuleEntryForUser(userId)
+		if entry == nil {
+			return nil
+		}
+		// Lock so that new incoming rule are not mixed in with the
+		// initial rules.
+		entry.lock.Lock()
+		defer entry.lock.Unlock()
+
+		for writer := range entry.respWriters {
+			// Don't want to block while holding lock, in case one
+			// of the requestsChan entries is full.
+			p.tomb.Go(func() error {
+				writer.WriteRule(newRule)
+				return nil
+			})
+		}
+
+		sEntry := entry.snapEntries[newRule.Snap]
+		if sEntry == nil {
+			return nil
+		}
+		for writer := range sEntry.respWriters {
+			// Don't want to block while holding lock, in case one
+			// of the requestsChan entries is full.
+			p.tomb.Go(func() error {
+				writer.WriteRule(newRule)
+				return nil
+			})
+		}
+
+		saEntry := sEntry.appEntries[newRule.App]
+		if saEntry == nil {
+			return nil
+		}
+		for writer := range saEntry.respWriters {
+			// Don't want to block while holding lock, in case one
+			// of the requestsChan entries is full.
+			p.tomb.Go(func() error {
+				writer.WriteRule(newRule)
+				return nil
+			})
+		}
+
+		return nil
+	})
+}
+
 func (p *Prompting) handleListenerReq(req *listener.Request) error {
-	// user := int(req.SubjectUid) // TODO: undo this! This is just for debugging
-	user := userOverride // TODO: undo this! This is just for debugging
+	// userId := int(req.SubjectUid) // TODO: undo this! This is just for debugging
+	userId := userOverride // TODO: undo this! This is just for debugging
 	snap, app, err := common.LabelToSnapApp(req.Label)
 	if err != nil {
 		// the triggering process is not a snap, so treat apparmor label as both snap and app fields
@@ -74,7 +368,7 @@ func (p *Prompting) handleListenerReq(req *listener.Request) error {
 
 	satisfiedPerms := make([]common.PermissionType, 0, len(permissions))
 	for _, perm := range permissions {
-		if yesNo, err := p.rules.IsPathAllowed(user, snap, app, path, perm); err == nil {
+		if yesNo, err := p.rules.IsPathAllowed(userId, snap, app, path, perm); err == nil {
 			if !yesNo {
 				req.YesNo <- false
 				// TODO: the response puts all original permissions in the
@@ -91,9 +385,10 @@ func (p *Prompting) handleListenerReq(req *listener.Request) error {
 		return nil
 	}
 
-	p.requests.Add(user, snap, app, path, permissions, req.YesNo)
-	logger.Noticef("adding request to internal storage: user: %v, snap: %v, app: %v, path: %v, permissions: %v", user, snap, app, path, permissions)
-	// TODO: notify any listeners to the requests API using p.tomb.Go()
+	newRequest := p.requests.Add(userId, snap, app, path, permissions, req.YesNo)
+	logger.Noticef("adding request to internal storage: %+v", newRequest)
+
+	p.notifyNewRequest(userId, newRequest)
 	return nil
 }
 
@@ -179,6 +474,7 @@ func (p *Prompting) PostRequest(userId int, requestId string, reply *PromptReply
 		// CreateAccessRule (CreateAccessRuleFromReply ?)
 		return nil, err
 	}
+	p.notifyNewRule(userId, newRule)
 
 	// Apply new rule to outstanding prompt requests.
 	satisfiedReqIds, err := p.requests.HandleNewRule(userId, newRule.Snap, newRule.App, newRule.PathPattern, newRule.Outcome, newRule.Permissions)
@@ -256,6 +552,7 @@ func (p *Prompting) PostRulesCreate(userId int, rules []*PostRulesCreateRuleCont
 		} else {
 			createdRules = append(createdRules, newRule)
 		}
+		p.notifyNewRule(userId, newRule)
 	}
 	if len(errors) > 0 {
 		err := fmt.Errorf("")
