@@ -101,14 +101,16 @@ func (rdb *RequestDB) Reply(user int, id string, outcome common.OutcomeType) (*P
 	if !exists {
 		return nil, ErrRequestIdNotFound
 	}
+	var outcomeBool bool
 	switch outcome {
 	case common.OutcomeAllow:
-		req.replyChan <- true
+		outcomeBool = true
 	case common.OutcomeDeny:
-		req.replyChan <- false
+		outcomeBool = false
 	default:
-		// should never occur
+		return nil, common.ErrInvalidOutcome
 	}
+	req.replyChan <- outcomeBool
 	delete(userEntry.ById, id)
 	return req, nil
 }
@@ -118,6 +120,15 @@ func (rdb *RequestDB) Reply(user int, id string, outcome common.OutcomeType) (*P
 func (rdb *RequestDB) HandleNewRule(user int, snap string, app string, pathPattern string, outcome common.OutcomeType, permissions []common.PermissionType) ([]string, error) {
 	rdb.mutex.Lock()
 	defer rdb.mutex.Unlock()
+	var outcomeBool bool
+	switch outcome {
+	case common.OutcomeAllow:
+		outcomeBool = true
+	case common.OutcomeDeny:
+		outcomeBool = false
+	default:
+		return nil, common.ErrInvalidOutcome
+	}
 	var satisfiedReqIds []string
 	userEntry, exists := rdb.PerUser[user]
 	if !exists {
@@ -145,15 +156,7 @@ func (rdb *RequestDB) HandleNewRule(user int, snap string, app string, pathPatte
 			continue
 		}
 		// all permissions of request satisfied
-		switch outcome {
-		case common.OutcomeAllow:
-			req.replyChan <- true
-		case common.OutcomeDeny:
-			req.replyChan <- false
-		default:
-			// should never occur
-			continue // XXX TODO: add unit test to make sure continue continues to for loop
-		}
+		req.replyChan <- outcomeBool
 		delete(userEntry.ById, id)
 		satisfiedReqIds = append(satisfiedReqIds, id)
 	}

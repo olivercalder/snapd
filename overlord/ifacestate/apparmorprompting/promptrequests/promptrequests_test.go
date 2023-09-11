@@ -58,11 +58,11 @@ func (s *promptrequestsSuite) TestAddRequests(c *C) {
 
 	stored = rdb.Requests(user)
 	c.Assert(stored, HasLen, 1)
-	c.Assert(stored[0], DeepEquals, req)
+	c.Assert(stored[0], Equals, req)
 
 	storedReq, err := rdb.RequestWithId(user, req.Id)
 	c.Assert(err, IsNil)
-	c.Assert(storedReq, DeepEquals, req)
+	c.Assert(storedReq, Equals, req)
 }
 
 func (s *promptrequestsSuite) TestRequestWithIdErrors(c *C) {
@@ -78,7 +78,7 @@ func (s *promptrequestsSuite) TestRequestWithIdErrors(c *C) {
 
 	result, err := rdb.RequestWithId(user, req.Id)
 	c.Assert(err, IsNil)
-	c.Assert(result, DeepEquals, req)
+	c.Assert(result, Equals, req)
 
 	result, err = rdb.RequestWithId(user, "foo")
 	c.Assert(err, Equals, promptrequests.ErrRequestIdNotFound)
@@ -256,30 +256,30 @@ func (s *promptrequestsSuite) TestHandleNewRuleNonMatches(c *C) {
 
 	stored := rdb.Requests(user)
 	c.Assert(stored, HasLen, 1)
-	c.Assert(stored[0], DeepEquals, req)
+	c.Assert(stored[0], Equals, req)
 
 	satisfied, err := rdb.HandleNewRule(otherUser, otherSnap, otherApp, otherPattern, badOutcome, permissions)
+	c.Assert(err, Equals, common.ErrInvalidOutcome)
+	c.Assert(satisfied, HasLen, 0)
+
+	satisfied, err = rdb.HandleNewRule(otherUser, otherSnap, otherApp, otherPattern, outcome, permissions)
 	c.Assert(err, IsNil)
 	c.Assert(satisfied, HasLen, 0)
 
-	satisfied, err = rdb.HandleNewRule(user, otherSnap, otherApp, otherPattern, badOutcome, permissions)
+	satisfied, err = rdb.HandleNewRule(user, otherSnap, otherApp, otherPattern, outcome, permissions)
 	c.Assert(err, IsNil)
 	c.Assert(satisfied, HasLen, 0)
 
-	satisfied, err = rdb.HandleNewRule(user, snap, otherApp, otherPattern, badOutcome, permissions)
+	satisfied, err = rdb.HandleNewRule(user, snap, otherApp, otherPattern, outcome, permissions)
 	c.Assert(err, IsNil)
 	c.Assert(satisfied, HasLen, 0)
 
-	satisfied, err = rdb.HandleNewRule(user, snap, app, otherPattern, badOutcome, permissions)
+	satisfied, err = rdb.HandleNewRule(user, snap, app, otherPattern, outcome, permissions)
 	c.Assert(err, IsNil)
 	c.Assert(satisfied, HasLen, 0)
 
-	satisfied, err = rdb.HandleNewRule(user, snap, app, badPattern, badOutcome, permissions)
+	satisfied, err = rdb.HandleNewRule(user, snap, app, badPattern, outcome, permissions)
 	c.Assert(err, ErrorMatches, "syntax error in pattern")
-	c.Assert(satisfied, HasLen, 0)
-
-	satisfied, err = rdb.HandleNewRule(user, snap, app, pathPattern, badOutcome, permissions)
-	c.Assert(err, IsNil)
 	c.Assert(satisfied, HasLen, 0)
 
 	satisfied, err = rdb.HandleNewRule(user, snap, app, pathPattern, outcome, permissions)
