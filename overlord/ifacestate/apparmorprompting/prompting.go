@@ -385,7 +385,12 @@ func (p *Prompting) handleListenerReq(req *listener.Request) error {
 		return nil
 	}
 
-	newRequest := p.requests.Add(userId, snap, app, path, permissions, req.YesNo)
+	newRequest, merged := p.requests.AddOrMerge(userId, snap, app, path, permissions, req.YesNo)
+	if merged {
+		logger.Noticef("new request merged with identical existing request: %+v", newRequest)
+		return nil
+	}
+
 	logger.Noticef("adding request to internal storage: %+v", newRequest)
 
 	p.notifyNewRequest(userId, newRequest)
@@ -549,10 +554,15 @@ func (p *Prompting) PostRulesCreate(userId int, rules []*PostRulesCreateRuleCont
 		newRule, err := p.rules.CreateAccessRule(userId, snap, app, pathPattern, outcome, lifespan, duration, permissions)
 		if err != nil {
 			errors = append(errors, err)
-		} else {
-			createdRules = append(createdRules, newRule)
+			continue
 		}
+		createdRules = append(createdRules, newRule)
 		p.notifyNewRule(userId, newRule)
+		// Apply new rule to outstanding requests. If error occurs,
+		// include it in the list of errors from creating rules.
+		if _, err := p.requests.HandleNewRule(userId, newRule.Snap, newRule.App, newRule.PathPattern, newRule.Outcome, newRule.Permissions); err != nil {
+			errors = append(errors, err)
+		}
 	}
 	if len(errors) > 0 {
 		err := fmt.Errorf("")
