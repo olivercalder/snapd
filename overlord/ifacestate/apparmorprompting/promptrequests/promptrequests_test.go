@@ -30,39 +30,50 @@ func (s *promptrequestsSuite) TestNew(c *C) {
 	c.Assert(prdb.PerUser, HasLen, 0)
 }
 
-func (s *promptrequestsSuite) TestAddRequests(c *C) {
+func (s *promptrequestsSuite) TestAddOrMergeRequests(c *C) {
 	rdb := promptrequests.New()
 	var user int = 1000
 	snap := "nextcloud"
 	app := "occ"
 	path := "/home/test/Documents/foo.txt"
 	permissions := []common.PermissionType{common.PermissionExecute, common.PermissionWrite, common.PermissionRead}
-	replyChan := make(chan bool)
+	replyChan1 := make(chan bool)
+	replyChan2 := make(chan bool)
+	replyChan3 := make(chan bool)
 
 	stored := rdb.Requests(user)
 	c.Assert(stored, HasLen, 0)
 
 	before := time.Now()
-	req := rdb.Add(user, snap, app, path, permissions, replyChan)
+	req1, merged := rdb.AddOrMerge(user, snap, app, path, permissions, replyChan1)
 	after := time.Now()
+	c.Assert(merged, Equals, false)
 
-	timestamp, err := common.TimestampToTime(req.Timestamp)
+	req2, merged := rdb.AddOrMerge(user, snap, app, path, permissions, replyChan2)
+	c.Assert(merged, Equals, true)
+	c.Assert(req2, Equals, req1)
+
+	timestamp, err := common.TimestampToTime(req1.Timestamp)
 	c.Assert(err, IsNil)
 	c.Assert(timestamp.After(before), Equals, true)
 	c.Assert(timestamp.Before(after), Equals, true)
 
-	c.Assert(req.Snap, Equals, snap)
-	c.Assert(req.App, Equals, app)
-	c.Assert(req.Path, Equals, path)
-	c.Assert(req.Permissions, DeepEquals, permissions)
+	c.Assert(req1.Snap, Equals, snap)
+	c.Assert(req1.App, Equals, app)
+	c.Assert(req1.Path, Equals, path)
+	c.Assert(req1.Permissions, DeepEquals, permissions)
 
 	stored = rdb.Requests(user)
 	c.Assert(stored, HasLen, 1)
-	c.Assert(stored[0], Equals, req)
+	c.Assert(stored[0], Equals, req1)
 
-	storedReq, err := rdb.RequestWithId(user, req.Id)
+	storedReq, err := rdb.RequestWithId(user, req1.Id)
 	c.Assert(err, IsNil)
-	c.Assert(storedReq, Equals, req)
+	c.Assert(storedReq, Equals, req1)
+
+	req3, merged := rdb.AddOrMerge(user, snap, app, path, permissions, replyChan3)
+	c.Assert(merged, Equals, true)
+	c.Assert(req3, Equals, req1)
 }
 
 func (s *promptrequestsSuite) TestRequestWithIdErrors(c *C) {
@@ -74,7 +85,8 @@ func (s *promptrequestsSuite) TestRequestWithIdErrors(c *C) {
 	permissions := []common.PermissionType{common.PermissionExecute, common.PermissionWrite, common.PermissionRead}
 	replyChan := make(chan bool)
 
-	req := rdb.Add(user, snap, app, path, permissions, replyChan)
+	req, merged := rdb.AddOrMerge(user, snap, app, path, permissions, replyChan)
+	c.Assert(merged, Equals, false)
 
 	result, err := rdb.RequestWithId(user, req.Id)
 	c.Assert(err, IsNil)
@@ -96,21 +108,36 @@ func (s *promptrequestsSuite) TestReply(c *C) {
 	app := "occ"
 	path := "/home/test/Documents/foo.txt"
 	permissions := []common.PermissionType{common.PermissionExecute, common.PermissionWrite, common.PermissionRead}
-	replyChan := make(chan bool)
+	replyChan1 := make(chan bool)
+	replyChan2 := make(chan bool)
 
-	req := rdb.Add(user, snap, app, path, permissions, replyChan)
+	req1, merged := rdb.AddOrMerge(user, snap, app, path, permissions, replyChan1)
+	c.Assert(merged, Equals, false)
+
+	req2, merged := rdb.AddOrMerge(user, snap, app, path, permissions, replyChan2)
+	c.Assert(merged, Equals, true)
+	c.Assert(req2, Equals, req1)
 
 	outcome := common.OutcomeAllow
-	go rdb.Reply(user, req.Id, outcome)
-	result := <-replyChan
-	c.Assert(result, Equals, true)
+	go rdb.Reply(user, req1.Id, outcome)
+	result1 := <-replyChan1
+	result2 := <-replyChan2
+	c.Assert(result1, Equals, true)
+	c.Assert(result2, Equals, true)
 
-	req = rdb.Add(user, snap, app, path, permissions, replyChan)
+	req1, merged = rdb.AddOrMerge(user, snap, app, path, permissions, replyChan1)
+	c.Assert(merged, Equals, false)
+
+	req2, merged = rdb.AddOrMerge(user, snap, app, path, permissions, replyChan2)
+	c.Assert(merged, Equals, true)
+	c.Assert(req2, Equals, req1)
 
 	outcome = common.OutcomeDeny
-	go rdb.Reply(user, req.Id, outcome)
-	result = <-replyChan
-	c.Assert(result, Equals, false)
+	go rdb.Reply(user, req2.Id, outcome)
+	result1 = <-replyChan1
+	result2 = <-replyChan2
+	c.Assert(result1, Equals, false)
+	c.Assert(result2, Equals, false)
 }
 
 func (s *promptrequestsSuite) TestReplyErrors(c *C) {
@@ -122,7 +149,8 @@ func (s *promptrequestsSuite) TestReplyErrors(c *C) {
 	permissions := []common.PermissionType{common.PermissionExecute, common.PermissionWrite, common.PermissionRead}
 	replyChan := make(chan bool)
 
-	_ = rdb.Add(user, snap, app, path, permissions, replyChan)
+	_, merged := rdb.AddOrMerge(user, snap, app, path, permissions, replyChan)
+	c.Assert(merged, Equals, false)
 
 	outcome := common.OutcomeAllow
 
@@ -143,19 +171,23 @@ func (s *promptrequestsSuite) TestHandleNewRuleAllowPermissions(c *C) {
 
 	permissions := []common.PermissionType{common.PermissionExecute, common.PermissionWrite, common.PermissionRead}
 	replyChan1 := make(chan bool)
-	_ = rdb.Add(user, snap, app, path, permissions, replyChan1)
+	_, merged := rdb.AddOrMerge(user, snap, app, path, permissions, replyChan1)
+	c.Assert(merged, Equals, false)
 
 	permissions = []common.PermissionType{common.PermissionWrite, common.PermissionRead}
 	replyChan2 := make(chan bool, 1)
-	req2 := rdb.Add(user, snap, app, path, permissions, replyChan2)
+	req2, merged := rdb.AddOrMerge(user, snap, app, path, permissions, replyChan2)
+	c.Assert(merged, Equals, false)
 
 	permissions = []common.PermissionType{common.PermissionRead}
 	replyChan3 := make(chan bool, 1)
-	req3 := rdb.Add(user, snap, app, path, permissions, replyChan3)
+	req3, merged := rdb.AddOrMerge(user, snap, app, path, permissions, replyChan3)
+	c.Assert(merged, Equals, false)
 
 	permissions = []common.PermissionType{common.PermissionOpen}
 	replyChan4 := make(chan bool)
-	_ = rdb.Add(user, snap, app, path, permissions, replyChan4)
+	_, merged = rdb.AddOrMerge(user, snap, app, path, permissions, replyChan4)
+	c.Assert(merged, Equals, false)
 
 	stored := rdb.Requests(user)
 	c.Assert(stored, HasLen, 4)
@@ -189,19 +221,23 @@ func (s *promptrequestsSuite) TestHandleNewRuleDenyPermissions(c *C) {
 
 	permissions := []common.PermissionType{common.PermissionExecute, common.PermissionWrite, common.PermissionRead}
 	replyChan1 := make(chan bool)
-	_ = rdb.Add(user, snap, app, path, permissions, replyChan1)
+	_, merged := rdb.AddOrMerge(user, snap, app, path, permissions, replyChan1)
+	c.Assert(merged, Equals, false)
 
 	permissions = []common.PermissionType{common.PermissionWrite, common.PermissionRead}
 	replyChan2 := make(chan bool, 1)
-	req2 := rdb.Add(user, snap, app, path, permissions, replyChan2)
+	req2, merged := rdb.AddOrMerge(user, snap, app, path, permissions, replyChan2)
+	c.Assert(merged, Equals, false)
 
 	permissions = []common.PermissionType{common.PermissionRead}
 	replyChan3 := make(chan bool, 1)
-	req3 := rdb.Add(user, snap, app, path, permissions, replyChan3)
+	req3, merged := rdb.AddOrMerge(user, snap, app, path, permissions, replyChan3)
+	c.Assert(merged, Equals, false)
 
 	permissions = []common.PermissionType{common.PermissionOpen}
 	replyChan4 := make(chan bool)
-	_ = rdb.Add(user, snap, app, path, permissions, replyChan4)
+	_, merged = rdb.AddOrMerge(user, snap, app, path, permissions, replyChan4)
+	c.Assert(merged, Equals, false)
 
 	stored := rdb.Requests(user)
 	c.Assert(stored, HasLen, 4)
@@ -242,7 +278,8 @@ func (s *promptrequestsSuite) TestHandleNewRuleNonMatches(c *C) {
 	path := "/home/test/Documents/foo.txt"
 	permissions := []common.PermissionType{common.PermissionRead}
 	replyChan := make(chan bool, 1)
-	req := rdb.Add(user, snap, app, path, permissions, replyChan)
+	req, merged := rdb.AddOrMerge(user, snap, app, path, permissions, replyChan)
+	c.Assert(merged, Equals, false)
 
 	pathPattern := "/home/test/Documents/**"
 	outcome := common.OutcomeAllow

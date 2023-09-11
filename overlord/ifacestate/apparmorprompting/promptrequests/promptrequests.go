@@ -2,6 +2,7 @@ package promptrequests
 
 import (
 	"errors"
+	"reflect"
 	"sync"
 
 	"github.com/snapcore/snapd/overlord/ifacestate/apparmorprompting/common"
@@ -18,7 +19,7 @@ type PromptRequest struct {
 	App         string                  `json:"app"`
 	Path        string                  `json:"path"`
 	Permissions []common.PermissionType `json:"permissions"`
-	replyChan   chan bool               `json:"-"`
+	replyChans  []chan bool             `json:"-"`
 }
 
 type userRequestDB struct {
@@ -37,7 +38,13 @@ func New() *RequestDB {
 }
 
 // Creates, adds, and returns a new prompt request from the given parameters.
-func (rdb *RequestDB) Add(user int, snap string, app string, path string, permissions []common.PermissionType, replyChan chan bool) *PromptRequest {
+//
+// If the parameters exactly match an existing request, merge it with that
+// existing request instead, and do not add a new request. If a new request was
+// added, returns the new request and false, indicating the request was not
+// merged. If it was merged with an identical existing request, returns the
+// existing request and true.
+func (rdb *RequestDB) AddOrMerge(user int, snap string, app string, path string, permissions []common.PermissionType, replyChan chan bool) (*PromptRequest, bool) {
 	rdb.mutex.Lock()
 	defer rdb.mutex.Unlock()
 	userEntry, exists := rdb.PerUser[user]
@@ -47,6 +54,15 @@ func (rdb *RequestDB) Add(user int, snap string, app string, path string, permis
 		}
 		userEntry = rdb.PerUser[user]
 	}
+
+	// Search for an identical existing request, merge if found
+	for _, req := range userEntry.ById {
+		if req.Snap == snap && req.App == app && req.Path == path && reflect.DeepEqual(req.Permissions, permissions) {
+			req.replyChans = append(req.replyChans, replyChan)
+			return req, true
+		}
+	}
+
 	id, timestamp := common.NewIdAndTimestamp()
 	req := &PromptRequest{
 		Id:          id,
@@ -55,10 +71,10 @@ func (rdb *RequestDB) Add(user int, snap string, app string, path string, permis
 		App:         app,
 		Path:        path,
 		Permissions: permissions, // TODO: copy permissions list?
-		replyChan:   replyChan,
+		replyChans:  []chan bool{replyChan},
 	}
 	userEntry.ById[id] = req
-	return req
+	return req, false
 }
 
 func (rdb *RequestDB) Requests(user int) []*PromptRequest {
@@ -110,7 +126,9 @@ func (rdb *RequestDB) Reply(user int, id string, outcome common.OutcomeType) (*P
 	default:
 		return nil, common.ErrInvalidOutcome
 	}
-	req.replyChan <- outcomeBool
+	for _, replyChan := range req.replyChans {
+		replyChan <- outcomeBool
+	}
 	delete(userEntry.ById, id)
 	return req, nil
 }
@@ -156,7 +174,9 @@ func (rdb *RequestDB) HandleNewRule(user int, snap string, app string, pathPatte
 			continue
 		}
 		// all permissions of request satisfied
-		req.replyChan <- outcomeBool
+		for _, replyChan := range req.replyChans {
+			replyChan <- outcomeBool
+		}
 		delete(userEntry.ById, id)
 		satisfiedReqIds = append(satisfiedReqIds, id)
 	}
