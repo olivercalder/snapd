@@ -447,7 +447,12 @@ func (p *Prompting) handleListenerReq(req *listener.Request) error {
 		return req.Reply(true)
 	}
 
-	newRequest := p.requests.Add(userID, snap, app, path, permissions, req)
+	newRequest, merged := p.requests.AddOrMerge(userID, snap, app, path, permissions, req)
+	if merged {
+		logger.Noticef("new request merged with identical existing request: %+v", newRequest)
+		return nil
+	}
+
 	logger.Noticef("adding request to internal storage: %+v", newRequest)
 
 	p.notifyNewRequest(userID, newRequest)
@@ -465,7 +470,7 @@ func (p *Prompting) GetRequests(userID int) ([]*promptrequests.PromptRequest, er
 }
 
 func (p *Prompting) GetRequest(userID int, requestID string) (*promptrequests.PromptRequest, error) {
-	req, err := p.requests.RequestWithId(userID, requestID)
+	req, err := p.requests.RequestWithID(userID, requestID)
 	return req, err
 }
 
@@ -499,12 +504,12 @@ func (p *Prompting) PostRequest(userID int, requestID string, reply *PromptReply
 	p.notifyNewRule(userID, newRule)
 
 	// Apply new rule to outstanding prompt requests.
-	satisfiedReqIds, err := p.requests.HandleNewRule(userID, newRule.Snap, newRule.App, newRule.PathPattern, newRule.Outcome, newRule.Permissions)
+	satisfiedReqIDs, err := p.requests.HandleNewRule(userID, newRule.Snap, newRule.App, newRule.PathPattern, newRule.Outcome, newRule.Permissions)
 	if err != nil {
 		return nil, err
 	}
 
-	return satisfiedReqIds, nil
+	return satisfiedReqIDs, nil
 }
 
 type PostRulesCreateRuleContents struct {
@@ -602,7 +607,7 @@ func (p *Prompting) PostRulesDelete(userID int, deleteSelectors []*PostRulesDele
 			rulesToDelete = p.rules.RulesForSnap(userID, snap)
 		}
 		for _, rule := range rulesToDelete {
-			deletedRule, err := p.rules.DeleteAccessRule(userID, rule.Id)
+			deletedRule, err := p.rules.DeleteAccessRule(userID, rule.ID)
 			if err != nil {
 				continue
 			}
@@ -613,7 +618,7 @@ func (p *Prompting) PostRulesDelete(userID int, deleteSelectors []*PostRulesDele
 }
 
 func (p *Prompting) GetRule(userID int, ruleID string) (*accessrules.AccessRule, error) {
-	rule, err := p.rules.RuleWithId(userID, ruleID)
+	rule, err := p.rules.RuleWithID(userID, ruleID)
 	return rule, err
 }
 
