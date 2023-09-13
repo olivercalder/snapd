@@ -370,6 +370,7 @@ func (p *Prompting) handleListenerReq(req *listener.Request) error {
 	for _, perm := range permissions {
 		if yesNo, err := p.rules.IsPathAllowed(userId, snap, app, path, perm); err == nil {
 			if !yesNo {
+				logger.Noticef("request denied by existing rule: %+v", req)
 				req.YesNo <- false
 				// TODO: the response puts all original permissions in the
 				// Deny field, do we want to differentiate the denied bits from
@@ -381,6 +382,7 @@ func (p *Prompting) handleListenerReq(req *listener.Request) error {
 		}
 	}
 	if len(satisfiedPerms) == len(permissions) {
+		logger.Noticef("request allowed by existing rule: %+v", req)
 		req.YesNo <- true
 		return nil
 	}
@@ -414,12 +416,12 @@ func (p *Prompting) Run() error {
 			logger.Debugf("waiting prompt loop")
 			select {
 			case req := <-p.listener.R:
-				logger.Noticef("Got from kernel req chan: %v", req)
+				logger.Noticef("Got from kernel req chan: %+v", req)
 				if err := p.handleListenerReq(req); err != nil { // no use multithreading, since IsPathAllowed locks
-					logger.Noticef("Error while handling request: %v", err)
+					logger.Noticef("Error while handling request: %+v", err)
 				}
 			case err := <-p.listener.E:
-				logger.Noticef("Got from kernel error chan: %v", err)
+				logger.Noticef("Got from kernel error chan: %+v", err)
 				return err
 			case <-p.tomb.Dying():
 				logger.Noticef("Prompting tomb is dying, disconnecting")
