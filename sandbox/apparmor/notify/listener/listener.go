@@ -10,6 +10,7 @@ import (
 
 	"gopkg.in/tomb.v2"
 
+	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/osutil/epoll"
 	"github.com/snapcore/snapd/sandbox/apparmor/notify"
 )
@@ -148,7 +149,7 @@ func (l *Listener) decodeAndDispatchRequest(buf []byte, t *tomb.Tomb) error {
 			if err := fmsg.UnmarshalBinary(buf); err != nil {
 				return err
 			}
-			// log.Printf("notification request: %#v\n", fmsg)
+			logger.Noticef("Received access request from kernel: %+v", fmsg)
 			req := newRequest(l, &fmsg)
 			l.R <- req
 			l.waitAndRespond(req, &fmsg, t)
@@ -185,7 +186,7 @@ func (l *Listener) waitAndRespond(req *Request, msg *notify.MsgNotificationFile,
 			// msg.Error is field from MsgNotificationResponse, and is unused.
 			// msg.MsgNotification.Error is also ignored in responses.
 		}
-		//log.Printf("notification response: %#v\n", resp)
+		logger.Noticef("Sending access response back to kernel: %+v", resp)
 		if err := l.encodeAndSendResponse(&resp); err != nil {
 			l.fail(err)
 		}
