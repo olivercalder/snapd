@@ -9,8 +9,8 @@ import (
 
 type FollowRequestsSeqResponseWriter struct {
 	requestsCh      chan *promptrequests.PromptRequest
-	stoppingCh      chan interface{} // Should only ever be closed by Stop().
-	stoppingChMutex sync.Mutex       // Prevent stoppingCh from being closed twice.
+	stoppingCh      chan struct{} // Should only ever be closed by Stop().
+	stoppingChMutex sync.Mutex    // Prevent stoppingCh from being closed twice.
 	writeWG         sync.WaitGroup
 	writeWGMutex    sync.Mutex
 }
@@ -18,7 +18,7 @@ type FollowRequestsSeqResponseWriter struct {
 func newFollowRequestsSeqResponseWriter(requestsCh chan *promptrequests.PromptRequest) *FollowRequestsSeqResponseWriter {
 	rw := &FollowRequestsSeqResponseWriter{
 		requestsCh: requestsCh,
-		stoppingCh: make(chan interface{}),
+		stoppingCh: make(chan struct{}),
 	}
 	return rw
 }
@@ -94,14 +94,14 @@ func (rw *FollowRequestsSeqResponseWriter) Stop() {
 }
 
 // Stopping returns a channel on which reads block until Stop() has been called.
-func (rw *FollowRequestsSeqResponseWriter) Stopping() chan interface{} {
+func (rw *FollowRequestsSeqResponseWriter) Stopping() chan struct{} {
 	return rw.stoppingCh
 }
 
 type FollowRulesSeqResponseWriter struct {
 	rulesCh         chan *accessrules.AccessRule
-	stoppingCh      chan interface{} // Should only ever be closed by Stop().
-	stoppingChMutex sync.Mutex       // Prevent stoppingCh from being closed twice.
+	stoppingCh      chan struct{} // Should only ever be closed by Stop().
+	stoppingChMutex sync.Mutex    // Prevent stoppingCh from being closed twice.
 	writeWG         sync.WaitGroup
 	writeWGMutex    sync.Mutex
 }
@@ -109,7 +109,7 @@ type FollowRulesSeqResponseWriter struct {
 func newFollowRulesSeqResponseWriter(rulesCh chan *accessrules.AccessRule) *FollowRulesSeqResponseWriter {
 	rw := &FollowRulesSeqResponseWriter{
 		rulesCh:    rulesCh,
-		stoppingCh: make(chan interface{}),
+		stoppingCh: make(chan struct{}),
 	}
 	return rw
 }
@@ -185,6 +185,6 @@ func (rw *FollowRulesSeqResponseWriter) Stop() {
 }
 
 // Stopping returns a channel on which reads block until Stop() has been called.
-func (rw *FollowRulesSeqResponseWriter) Stopping() chan interface{} {
+func (rw *FollowRulesSeqResponseWriter) Stopping() chan struct{} {
 	return rw.stoppingCh
 }
