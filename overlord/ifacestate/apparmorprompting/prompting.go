@@ -456,7 +456,7 @@ func (p *Prompting) GetRequest(userId int, requestId string) (*promptrequests.Pr
 type PromptReply struct {
 	Outcome     common.OutcomeType      `json:"action"`
 	Lifespan    common.LifespanType     `json:"lifespan"`
-	Duration    int                     `json:"duration,omitempty"`
+	Duration    string                  `json:"duration,omitempty"`
 	PathPattern string                  `json:"path-pattern"`
 	Permissions []common.PermissionType `json:"permissions"`
 }
@@ -502,7 +502,7 @@ type PostRulesCreateRuleContents struct {
 	PathPattern string                  `json:"path-pattern"`
 	Outcome     common.OutcomeType      `json:"outcome"`
 	Lifespan    common.LifespanType     `json:"lifespan"`
-	Duration    int                     `json:"duration,omitempty"`
+	Duration    string                  `json:"duration,omitempty"`
 	Permissions []common.PermissionType `json:"permissions"`
 }
 
@@ -521,7 +521,7 @@ type PostRuleModifyRuleContents struct {
 	PathPattern string                  `json:"path-pattern,omitempty"`
 	Outcome     common.OutcomeType      `json:"outcome,omitempty"`
 	Lifespan    common.LifespanType     `json:"lifespan,omitempty"`
-	Duration    int                     `json:"duration,omitempty"`
+	Duration    string                  `json:"duration,omitempty"`
 	Permissions []common.PermissionType `json:"permissions,omitempty"`
 }
 
