@@ -14,8 +14,6 @@ import (
 	"github.com/snapcore/snapd/sandbox/apparmor/notify/listener"
 )
 
-var userOverride int = 1234
-
 type Interface interface {
 	Connect() error
 	Run() error
@@ -133,8 +131,6 @@ func (p *Prompting) followRuleEntryForUserOrInit(userId int) *followRuleEntry {
 }
 
 func (p *Prompting) RegisterAndPopulateFollowRequestsChan(userId int, requestsCh chan *promptrequests.PromptRequest) *FollowRequestsSeqResponseWriter {
-	userId = userOverride // TODO: undo this! This is just for debugging
-
 	respWriter := newFollowRequestsSeqResponseWriter(requestsCh)
 
 	entry := p.followReqEntryForUserOrInit(userId)
@@ -177,8 +173,6 @@ func (p *Prompting) RegisterAndPopulateFollowRequestsChan(userId int, requestsCh
 }
 
 func (p *Prompting) RegisterAndPopulateFollowRulesChan(userId int, snap string, app string, rulesCh chan *accessrules.AccessRule) *FollowRulesSeqResponseWriter {
-	userId = userOverride // TODO: undo this! This is just for debugging
-
 	respWriter := newFollowRulesSeqResponseWriter(rulesCh)
 
 	entry := p.followRuleEntryForUserOrInit(userId)
@@ -352,8 +346,7 @@ func (p *Prompting) notifyNewRule(userId int, newRule *accessrules.AccessRule) {
 }
 
 func (p *Prompting) handleListenerReq(req *listener.Request) error {
-	// userId := int(req.SubjectUid) // TODO: undo this! This is just for debugging
-	userId := userOverride // TODO: undo this! This is just for debugging
+	userId := int(req.SubjectUid)
 	snap, app, err := common.LabelToSnapApp(req.Label)
 	if err != nil {
 		// the triggering process is not a snap, so treat apparmor label as both snap and app fields
@@ -442,13 +435,11 @@ func (p *Prompting) Stop() error {
 }
 
 func (p *Prompting) GetRequests(userId int) ([]*promptrequests.PromptRequest, error) {
-	userId = userOverride // TODO: undo this! This is just for debugging
 	reqs := p.requests.Requests(userId)
 	return reqs, nil
 }
 
 func (p *Prompting) GetRequest(userId int, requestId string) (*promptrequests.PromptRequest, error) {
-	userId = userOverride // TODO: undo this! This is just for debugging
 	req, err := p.requests.RequestWithId(userId, requestId)
 	return req, err
 }
@@ -462,7 +453,6 @@ type PromptReply struct {
 }
 
 func (p *Prompting) PostRequest(userId int, requestId string, reply *PromptReply) ([]string, error) {
-	userId = userOverride // TODO: undo this! This is just for debugging
 	req, err := p.requests.Reply(userId, requestId, reply.Outcome)
 	if err != nil {
 		return nil, err
@@ -545,7 +535,6 @@ type PostRuleRequestBody struct {
 }
 
 func (p *Prompting) GetRules(userId int, snap string, app string) ([]*accessrules.AccessRule, error) {
-	userId = userOverride // TODO: undo this! This is just for debugging
 	// Daemon already checked that if app != "", then snap != ""
 	if app != "" {
 		rules := p.rules.RulesForSnapApp(userId, snap, app)
@@ -560,7 +549,6 @@ func (p *Prompting) GetRules(userId int, snap string, app string) ([]*accessrule
 }
 
 func (p *Prompting) PostRulesCreate(userId int, rules []*PostRulesCreateRuleContents) ([]*accessrules.AccessRule, error) {
-	userId = userOverride // TODO: undo this! This is just for debugging
 	createdRules := make([]*accessrules.AccessRule, 0, len(rules))
 	errors := make([]error, 0)
 	for _, ruleContents := range rules {
@@ -595,7 +583,6 @@ func (p *Prompting) PostRulesCreate(userId int, rules []*PostRulesCreateRuleCont
 }
 
 func (p *Prompting) PostRulesDelete(userId int, deleteSelectors []*PostRulesDeleteSelectors) ([]*accessrules.AccessRule, error) {
-	userId = userOverride // TODO: undo this! This is just for debugging
 	deletedRules := make([]*accessrules.AccessRule, 0)
 	for _, selector := range deleteSelectors {
 		snap := selector.Snap
@@ -619,13 +606,11 @@ func (p *Prompting) PostRulesDelete(userId int, deleteSelectors []*PostRulesDele
 }
 
 func (p *Prompting) GetRule(userId int, ruleId string) (*accessrules.AccessRule, error) {
-	userId = userOverride // TODO: undo this! This is just for debugging
 	rule, err := p.rules.RuleWithId(userId, ruleId)
 	return rule, err
 }
 
 func (p *Prompting) PostRuleModify(userId int, ruleId string, contents *PostRuleModifyRuleContents) (*accessrules.AccessRule, error) {
-	userId = userOverride // TODO: undo this! This is just for debugging
 	pathPattern := contents.PathPattern
 	outcome := contents.Outcome
 	lifespan := contents.Lifespan
@@ -636,7 +621,6 @@ func (p *Prompting) PostRuleModify(userId int, ruleId string, contents *PostRule
 }
 
 func (p *Prompting) PostRuleDelete(userId int, ruleId string) (*accessrules.AccessRule, error) {
-	userId = userOverride // TODO: undo this! This is just for debugging
 	rule, err := p.rules.DeleteAccessRule(userId, ruleId)
 	return rule, err
 }
