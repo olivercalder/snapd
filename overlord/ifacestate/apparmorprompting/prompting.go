@@ -45,16 +45,16 @@ type Prompting struct {
 	listener          *listener.Listener
 	requests          *promptrequests.RequestDB
 	rules             *accessrules.AccessRuleDB
-	followReqEntries  map[int]*followReqEntry
+	followReqEntries  map[uint32]*followReqEntry
 	followReqLock     sync.Mutex
-	followRuleEntries map[int]*followRuleEntry
+	followRuleEntries map[uint32]*followRuleEntry
 	followRuleLock    sync.Mutex
 }
 
 func New() Interface {
 	p := &Prompting{
-		followReqEntries:  make(map[int]*followReqEntry),
-		followRuleEntries: make(map[int]*followRuleEntry),
+		followReqEntries:  make(map[uint32]*followReqEntry),
+		followRuleEntries: make(map[uint32]*followRuleEntry),
 	}
 	return p
 }
@@ -83,7 +83,7 @@ func (p *Prompting) disconnect() error {
 	return nil
 }
 
-func (p *Prompting) followReqEntryForUser(userId int) *followReqEntry {
+func (p *Prompting) followReqEntryForUser(userId uint32) *followReqEntry {
 	p.followReqLock.Lock()
 	defer p.followReqLock.Unlock()
 	entry, exists := p.followReqEntries[userId]
@@ -93,7 +93,7 @@ func (p *Prompting) followReqEntryForUser(userId int) *followReqEntry {
 	return entry
 }
 
-func (p *Prompting) followReqEntryForUserOrInit(userId int) *followReqEntry {
+func (p *Prompting) followReqEntryForUserOrInit(userId uint32) *followReqEntry {
 	p.followReqLock.Lock()
 	defer p.followReqLock.Unlock()
 	entry, exists := p.followReqEntries[userId]
@@ -106,7 +106,7 @@ func (p *Prompting) followReqEntryForUserOrInit(userId int) *followReqEntry {
 	return entry
 }
 
-func (p *Prompting) followRuleEntryForUser(userId int) *followRuleEntry {
+func (p *Prompting) followRuleEntryForUser(userId uint32) *followRuleEntry {
 	p.followRuleLock.Lock()
 	defer p.followRuleLock.Unlock()
 	entry, exists := p.followRuleEntries[userId]
@@ -116,7 +116,7 @@ func (p *Prompting) followRuleEntryForUser(userId int) *followRuleEntry {
 	return entry
 }
 
-func (p *Prompting) followRuleEntryForUserOrInit(userId int) *followRuleEntry {
+func (p *Prompting) followRuleEntryForUserOrInit(userId uint32) *followRuleEntry {
 	p.followRuleLock.Lock()
 	defer p.followRuleLock.Unlock()
 	entry, exists := p.followRuleEntries[userId]
@@ -130,7 +130,7 @@ func (p *Prompting) followRuleEntryForUserOrInit(userId int) *followRuleEntry {
 	return entry
 }
 
-func (p *Prompting) RegisterAndPopulateFollowRequestsChan(userId int, requestsCh chan *promptrequests.PromptRequest) *FollowRequestsSeqResponseWriter {
+func (p *Prompting) RegisterAndPopulateFollowRequestsChan(userId uint32, requestsCh chan *promptrequests.PromptRequest) *FollowRequestsSeqResponseWriter {
 	respWriter := newFollowRequestsSeqResponseWriter(requestsCh)
 
 	entry := p.followReqEntryForUserOrInit(userId)
@@ -172,7 +172,7 @@ func (p *Prompting) RegisterAndPopulateFollowRequestsChan(userId int, requestsCh
 	return respWriter
 }
 
-func (p *Prompting) RegisterAndPopulateFollowRulesChan(userId int, snap string, app string, rulesCh chan *accessrules.AccessRule) *FollowRulesSeqResponseWriter {
+func (p *Prompting) RegisterAndPopulateFollowRulesChan(userId uint32, snap string, app string, rulesCh chan *accessrules.AccessRule) *FollowRulesSeqResponseWriter {
 	respWriter := newFollowRulesSeqResponseWriter(rulesCh)
 
 	entry := p.followRuleEntryForUserOrInit(userId)
@@ -271,7 +271,7 @@ func (p *Prompting) RegisterAndPopulateFollowRulesChan(userId int, snap string, 
 
 // Notify all open connections for requests with the given userId that a new
 // request has been received.
-func (p *Prompting) notifyNewRequest(userId int, newRequest *promptrequests.PromptRequest) {
+func (p *Prompting) notifyNewRequest(userId uint32, newRequest *promptrequests.PromptRequest) {
 	p.tomb.Go(func() error {
 		entry := p.followReqEntryForUser(userId)
 		if entry == nil {
@@ -295,7 +295,7 @@ func (p *Prompting) notifyNewRequest(userId int, newRequest *promptrequests.Prom
 
 // Notify all open connections for rules with the given userId that a new
 // rule has been received.
-func (p *Prompting) notifyNewRule(userId int, newRule *accessrules.AccessRule) {
+func (p *Prompting) notifyNewRule(userId uint32, newRule *accessrules.AccessRule) {
 	p.tomb.Go(func() error {
 		entry := p.followRuleEntryForUser(userId)
 		if entry == nil {
@@ -346,7 +346,7 @@ func (p *Prompting) notifyNewRule(userId int, newRule *accessrules.AccessRule) {
 }
 
 func (p *Prompting) handleListenerReq(req *listener.Request) error {
-	userId := int(req.SubjectUid)
+	userId := req.SubjectUid
 	snap, app, err := common.LabelToSnapApp(req.Label)
 	if err != nil {
 		// the triggering process is not a snap, so treat apparmor label as both snap and app fields
@@ -434,12 +434,12 @@ func (p *Prompting) Stop() error {
 	return err
 }
 
-func (p *Prompting) GetRequests(userId int) ([]*promptrequests.PromptRequest, error) {
+func (p *Prompting) GetRequests(userId uint32) ([]*promptrequests.PromptRequest, error) {
 	reqs := p.requests.Requests(userId)
 	return reqs, nil
 }
 
-func (p *Prompting) GetRequest(userId int, requestId string) (*promptrequests.PromptRequest, error) {
+func (p *Prompting) GetRequest(userId uint32, requestId string) (*promptrequests.PromptRequest, error) {
 	req, err := p.requests.RequestWithId(userId, requestId)
 	return req, err
 }
@@ -452,7 +452,7 @@ type PromptReply struct {
 	Permissions []common.PermissionType `json:"permissions"`
 }
 
-func (p *Prompting) PostRequest(userId int, requestId string, reply *PromptReply) ([]string, error) {
+func (p *Prompting) PostRequest(userId uint32, requestId string, reply *PromptReply) ([]string, error) {
 	req, err := p.requests.Reply(userId, requestId, reply.Outcome)
 	if err != nil {
 		return nil, err
@@ -534,7 +534,7 @@ type PostRuleRequestBody struct {
 	Rule   *PostRuleModifyRuleContents `json:"rule,omitempty"`
 }
 
-func (p *Prompting) GetRules(userId int, snap string, app string) ([]*accessrules.AccessRule, error) {
+func (p *Prompting) GetRules(userId uint32, snap string, app string) ([]*accessrules.AccessRule, error) {
 	// Daemon already checked that if app != "", then snap != ""
 	if app != "" {
 		rules := p.rules.RulesForSnapApp(userId, snap, app)
@@ -548,7 +548,7 @@ func (p *Prompting) GetRules(userId int, snap string, app string) ([]*accessrule
 	return rules, nil
 }
 
-func (p *Prompting) PostRulesCreate(userId int, rules []*PostRulesCreateRuleContents) ([]*accessrules.AccessRule, error) {
+func (p *Prompting) PostRulesCreate(userId uint32, rules []*PostRulesCreateRuleContents) ([]*accessrules.AccessRule, error) {
 	createdRules := make([]*accessrules.AccessRule, 0, len(rules))
 	errors := make([]error, 0)
 	for _, ruleContents := range rules {
@@ -582,7 +582,7 @@ func (p *Prompting) PostRulesCreate(userId int, rules []*PostRulesCreateRuleCont
 	return createdRules, nil
 }
 
-func (p *Prompting) PostRulesDelete(userId int, deleteSelectors []*PostRulesDeleteSelectors) ([]*accessrules.AccessRule, error) {
+func (p *Prompting) PostRulesDelete(userId uint32, deleteSelectors []*PostRulesDeleteSelectors) ([]*accessrules.AccessRule, error) {
 	deletedRules := make([]*accessrules.AccessRule, 0)
 	for _, selector := range deleteSelectors {
 		snap := selector.Snap
@@ -605,12 +605,12 @@ func (p *Prompting) PostRulesDelete(userId int, deleteSelectors []*PostRulesDele
 	return deletedRules, nil
 }
 
-func (p *Prompting) GetRule(userId int, ruleId string) (*accessrules.AccessRule, error) {
+func (p *Prompting) GetRule(userId uint32, ruleId string) (*accessrules.AccessRule, error) {
 	rule, err := p.rules.RuleWithId(userId, ruleId)
 	return rule, err
 }
 
-func (p *Prompting) PostRuleModify(userId int, ruleId string, contents *PostRuleModifyRuleContents) (*accessrules.AccessRule, error) {
+func (p *Prompting) PostRuleModify(userId uint32, ruleId string, contents *PostRuleModifyRuleContents) (*accessrules.AccessRule, error) {
 	pathPattern := contents.PathPattern
 	outcome := contents.Outcome
 	lifespan := contents.Lifespan
@@ -620,7 +620,7 @@ func (p *Prompting) PostRuleModify(userId int, ruleId string, contents *PostRule
 	return rule, err
 }
 
-func (p *Prompting) PostRuleDelete(userId int, ruleId string) (*accessrules.AccessRule, error) {
+func (p *Prompting) PostRuleDelete(userId uint32, ruleId string) (*accessrules.AccessRule, error) {
 	rule, err := p.rules.DeleteAccessRule(userId, ruleId)
 	return rule, err
 }
