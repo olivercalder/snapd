@@ -104,7 +104,7 @@
 %endif
 
 Name:           snapd
-Version:        2.62
+Version:        2.99.3
 Release:        0%{?dist}
 Summary:        A transactional software package manager
 License:        GPLv3

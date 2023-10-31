@@ -2,6 +2,10 @@
 * Installation of local snap components
 * Started support for snap services to show real status of user daemons
 
+# New in snapd 2.99.3:
+* Apparmor prompting support
+* This is an arbitrary high version number so this version will always have priority over other snapd installs
+
 # New in snapd 2.62:
 * Aspects based configuration schema support (experimental)
 * Refresh app awareness support for UI (experimental)

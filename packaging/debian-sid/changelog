@@ -1,3 +1,9 @@
+snapd (2.99.3-1) unstable; urgency=medium
+
+  * New fake release to ensure priority
+
+ -- Oliver Calder <oliver.calder@canonical.com> Wed, 02 Apr 2024 14:10:00 -0500
+
 snapd (2.62-1) unstable; urgency=medium
 
   * New upstream release, LP: #2058277
@@ -130,7 +136,6 @@ snapd (2.61.3-1) unstable; urgency=medium
     - Install systemd files in correct location for 24.04
 
  -- Ernest Lotter <ernest.lotter@canonical.com>  Wed, 06 Mar 2024 23:18:11 +0200
-
 snapd (2.61.2-1) unstable; urgency=medium
 
   * New upstream release, LP: #2039017
