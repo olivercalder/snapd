@@ -6,6 +6,10 @@
 * state: add support for notices (from pebble)
 * daemon: add notices to the snapd API under `/v2/notices` and `/v2/notice`
 
+# New in snapd 2.99:
+* Apparmor prompting support
+* This is an arbitrary high version number so this version will always have priority over other snapd installs
+
 # New in snapd 2.61.1:
 * Stop requiring default provider snaps on image building and first boot if alternative providers are included and available
 * Fix auth.json access for login as non-root group ID
