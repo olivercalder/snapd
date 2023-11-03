@@ -863,15 +863,16 @@ var (
 		"wayland":                   {"app", "core"},
 		"x11":                       {"app", "core"},
 		// snowflakes
-		"classic-support": nil,
-		"custom-device":   nil,
-		"docker":          nil,
-		"lxd":             nil,
-		"microceph":       nil,
-		"microovn":        nil,
-		"pkcs11":          nil,
-		"posix-mq":        nil,
-		"shared-memory":   nil,
+		"classic-support":   nil,
+		"custom-device":     nil,
+		"docker":            nil,
+		"lxd":               nil,
+		"microceph":         nil,
+		"microceph-support": nil,
+		"microovn":          nil,
+		"pkcs11":            nil,
+		"posix-mq":          nil,
+		"shared-memory":     nil,
 	}
 
 	restrictedPlugInstallation = map[string][]string{
@@ -1015,6 +1016,7 @@ func (s *baseDeclSuite) TestPlugInstallation(c *C) {
 		"kernel-module-load":     true,
 		"kubernetes-support":     true,
 		"lxd-support":            true,
+		"microceph-support":      true,
 		"microstack-support":     true,
 		"mount-control":          true,
 		"multipass-support":      true,
