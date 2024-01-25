@@ -190,11 +190,20 @@ const (
 	// Warnings are a subset of notices where the key is a human-readable
 	// warning message.
 	WarningNotice NoticeType = "warning"
+
+	// Recorded whenever a prompt request is created or resolved. The key for
+	// interfaces-prompting-request notices is the request ID.
+	PromptingRequestNotice NoticeType = "interfaces-prompting-request"
+
+	// Recorded whenever a prompting rule is created, modified, deleted, or
+	// expired. The key for interfaces-prompting-rule-update notices is the
+	// rule ID.
+	PromptingRuleUpdateNotice NoticeType = "interfaces-prompting-rule-update"
 )
 
 func (t NoticeType) Valid() bool {
 	switch t {
-	case ChangeUpdateNotice, WarningNotice:
+	case ChangeUpdateNotice, WarningNotice, PromptingRequestNotice, PromptingRuleUpdateNotice:
 		return true
 	}
 	return false
