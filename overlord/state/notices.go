@@ -199,11 +199,20 @@ const (
 
 	// Recorded whenever an auto-refresh is inhibited for one or more snaps.
 	RefreshInhibitNotice NoticeType = "refresh-inhibit"
+
+	// Recorded whenever a prompt request is created or resolved. The key for
+	// interfaces-prompting-request notices is the request ID.
+	PromptingRequestNotice NoticeType = "interfaces-prompting-request"
+
+	// Recorded whenever a prompting rule is created, modified, deleted, or
+	// expired. The key for interfaces-prompting-rule-update notices is the
+	// rule ID.
+	PromptingRuleUpdateNotice NoticeType = "interfaces-prompting-rule-update"
 )
 
 func (t NoticeType) Valid() bool {
 	switch t {
-	case ChangeUpdateNotice, WarningNotice, RefreshInhibitNotice:
+	case ChangeUpdateNotice, WarningNotice, RefreshInhibitNotice, PromptingRequestNotice, PromptingRuleUpdateNotice:
 		return true
 	}
 	return false
