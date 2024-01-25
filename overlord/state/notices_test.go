@@ -257,7 +257,7 @@ func (s *noticesSuite) TestNoticesFilterType(c *C) {
 	st.Lock()
 	defer st.Unlock()
 
-	addNotice(c, st, nil, state.ChangeUpdateNotice, "443", nil)
+	addNotice(c, st, nil, state.PromptingRequestNotice, "443", nil)
 	time.Sleep(time.Microsecond)
 	addNotice(c, st, nil, state.ChangeUpdateNotice, "123", nil)
 	time.Sleep(time.Microsecond)
@@ -285,40 +285,20 @@ func (s *noticesSuite) TestNoticesFilterType(c *C) {
 	c.Check(n["type"], Equals, "warning")
 	c.Check(n["key"], Equals, "Warning 2!")
 
-	// Another type
-	notices = st.Notices(&state.NoticeFilter{Types: []state.NoticeType{state.ChangeUpdateNotice}})
-	c.Assert(notices, HasLen, 2)
-	n = noticeToMap(c, notices[0])
-	c.Check(n["user-id"], Equals, nil)
-	c.Check(n["type"], Equals, "change-update")
-	c.Check(n["key"], Equals, "443")
-	n = noticeToMap(c, notices[1])
-	c.Check(n["user-id"], Equals, nil)
-	c.Check(n["type"], Equals, "change-update")
-	c.Check(n["key"], Equals, "123")
-
 	// Multiple types
 	notices = st.Notices(&state.NoticeFilter{Types: []state.NoticeType{
 		state.ChangeUpdateNotice,
-		state.WarningNotice,
+		state.PromptingRequestNotice,
 	}})
-	c.Assert(notices, HasLen, 4)
+	c.Assert(notices, HasLen, 2)
 	n = noticeToMap(c, notices[0])
 	c.Check(n["user-id"], Equals, nil)
-	c.Check(n["type"], Equals, "change-update")
+	c.Check(n["type"], Equals, "interfaces-prompting-request")
 	c.Check(n["key"], Equals, "443")
 	n = noticeToMap(c, notices[1])
 	c.Check(n["user-id"], Equals, nil)
 	c.Check(n["type"], Equals, "change-update")
 	c.Check(n["key"], Equals, "123")
-	n = noticeToMap(c, notices[2])
-	c.Check(n["user-id"], Equals, nil)
-	c.Check(n["type"], Equals, "warning")
-	c.Check(n["key"], Equals, "Warning 1!")
-	n = noticeToMap(c, notices[3])
-	c.Check(n["user-id"], Equals, nil)
-	c.Check(n["type"], Equals, "warning")
-	c.Check(n["key"], Equals, "Warning 2!")
 }
 
 func (s *noticesSuite) TestNoticesFilterKey(c *C) {
