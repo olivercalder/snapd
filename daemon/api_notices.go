@@ -29,21 +29,23 @@ import (
 )
 
 var noticeReadInterfaces = map[state.NoticeType][]string{
-	state.ChangeUpdateNotice:   {"snap-refresh-observe"},
-	state.RefreshInhibitNotice: {"snap-refresh-observe"},
+	state.ChangeUpdateNotice:       {"snap-refresh-observe"},
+	state.RefreshInhibitNotice:     {"snap-refresh-observe"},
+	state.RequestsPromptNotice:     {"snap-prompting-control"},
+	state.RequestsRuleUpdateNotice: {"snap-prompting-control"},
 }
 
 var (
 	noticesCmd = &Command{
 		Path:       "/v2/notices",
 		GET:        getNotices,
-		ReadAccess: interfaceOpenAccess{Interfaces: []string{"snap-refresh-observe"}},
+		ReadAccess: interfaceOpenAccess{Interfaces: []string{"snap-refresh-observe", "snap-prompting-control"}},
 	}
 
 	noticeCmd = &Command{
 		Path:       "/v2/notices/{id}",
 		GET:        getNotice,
-		ReadAccess: interfaceOpenAccess{Interfaces: []string{"snap-refresh-observe"}},
+		ReadAccess: interfaceOpenAccess{Interfaces: []string{"snap-refresh-observe", "snap-prompting-control"}},
 	}
 )
 
