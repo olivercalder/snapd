@@ -117,10 +117,11 @@ func New(notifyPrompt func(userID uint32, promptID string, data map[string]strin
 		notifyPrompt: notifyPrompt,
 	}
 	// Importantly, set maxIDPath before attempting to load max ID
-	pdb.maxIDPath = filepath.Join(dirs.SnapRunDir, "/request-prompt-max-id")
+	pdb.maxIDPath = filepath.Join(dirs.SnapRunDir, "request-prompt-max-id")
 	err := pdb.loadMaxID()
 	if err != nil {
 		// If cannot read max existing prompt ID, start again from 0.
+		logger.Debugf("%v; restarting at ID 0", err)
 		pdb.maxID = 0
 	}
 	return &pdb
