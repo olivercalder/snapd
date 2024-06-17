@@ -417,7 +417,7 @@ func (s *requestpromptsSuite) TestReplyErrors(c *C) {
 	metadata := &prompting.Metadata{
 		User:      s.defaultUser,
 		Snap:      "nextcloud",
-		Interface: "removable-media",
+		Interface: "home",
 	}
 	path := "/home/test/Documents/foo.txt"
 	permissions := []string{"read", "write", "execute"}
