@@ -20,6 +20,7 @@
 package requestprompts
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -35,61 +36,80 @@ import (
 	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/sandbox/apparmor/notify/listener"
-	"github.com/snapcore/snapd/strutil"
 )
 
 var (
 	ErrNotFound = errors.New("cannot find prompt with the given ID for the given user")
 )
 
-// Prompt contains information about a request for which a user should be
-// prompted.
-type Prompt struct {
-	ID           string             `json:"id"`
-	Timestamp    time.Time          `json:"timestamp"`
-	Snap         string             `json:"snap"`
-	Interface    string             `json:"interface"`
-	Constraints  *PromptConstraints `json:"constraints"`
-	listenerReqs []*listener.Request
-}
-
-// PromptConstraints are like prompting.Constraints, but have a "path" field
+// jsonPromptConstraints are like prompting.Constraints, but have a "path" field
 // instead of a "path-pattern", and include the available permissions for the
 // interface corresponding to the prompt.
-type PromptConstraints struct {
+type jsonPromptConstraints struct {
 	Path                 string   `json:"path"`
 	Permissions          []string `json:"permissions"`
 	AvailablePermissions []string `json:"available-permissions"`
 }
 
-// equals returns true if the two prompt constraints are identical.
-func (pc *PromptConstraints) equals(other *PromptConstraints) bool {
-	if pc.Path != other.Path || len(pc.Permissions) != len(other.Permissions) {
-		return false
-	}
-	// Avoid using reflect.DeepEquals to compare []string contents
-	for i := range pc.Permissions {
-		if pc.Permissions[i] != other.Permissions[i] {
-			return false
-		}
-	}
-	return true
+// Prompt contains information about a request for which a user should be
+// prompted.
+type Prompt struct {
+	ID           string
+	Timestamp    time.Time
+	Snap         string
+	Interface    string
+	Constraints  *prompting.Constraints
+	listenerReqs []*listener.Request
 }
 
-// subtractPermissions removes all of the given permissions from the list of
-// permissions in the constraints.
-func (pc *PromptConstraints) subtractPermissions(permissions []string) (modified bool) {
-	newPermissions := make([]string, 0, len(pc.Permissions))
-	for _, perm := range pc.Permissions {
-		if !strutil.ListContains(permissions, perm) {
-			newPermissions = append(newPermissions, perm)
-		}
+type jsonPrompt struct {
+	ID          string                 `json:"id"`
+	Timestamp   time.Time              `json:"timestamp"`
+	Snap        string                 `json:"snap"`
+	Interface   string                 `json:"interface"`
+	Constraints *jsonPromptConstraints `json:"constraints"`
+}
+
+func (p *Prompt) MarshalJSON() ([]byte, error) {
+	availablePermissions, err := prompting.AvailablePermissions(p.Interface)
+	if err != nil {
+		return nil, err
 	}
-	if len(newPermissions) != len(pc.Permissions) {
-		pc.Permissions = newPermissions
-		return true
+	constraints := jsonPromptConstraints{
+		Path:                 p.Constraints.PathPattern,
+		Permissions:          p.Constraints.Permissions.AsList(p.Interface),
+		AvailablePermissions: availablePermissions,
 	}
-	return false
+	jp := jsonPrompt{
+		ID:          p.ID,
+		Timestamp:   p.Timestamp,
+		Snap:        p.Snap,
+		Interface:   p.Interface,
+		Constraints: &constraints,
+	}
+	return json.Marshal(jp)
+}
+
+func (p *Prompt) UnmarshalJSON(data []byte) error {
+	var jp jsonPrompt
+	err := json.Unmarshal(data, &jp)
+	if err != nil {
+		return err
+	}
+	permissions, err := prompting.PermissionsFromList(jp.Interface, jp.Constraints.Permissions)
+	if err != nil {
+		return err
+	}
+	constraints := prompting.Constraints{
+		PathPattern: jp.Constraints.Path,
+		Permissions: permissions,
+	}
+	p.ID = jp.ID
+	p.Timestamp = jp.Timestamp
+	p.Snap = jp.Snap
+	p.Interface = jp.Interface
+	p.Constraints = &constraints
+	return nil
 }
 
 // userPromptDB maps prompt IDs to prompts for a single user.
@@ -184,7 +204,7 @@ func (pdb *PromptDB) nextID() string {
 //
 // The caller must ensure that the given permissions are in the order in which
 // they appear in the available permissions list for the given interface.
-func (pdb *PromptDB) AddOrMerge(metadata *prompting.Metadata, path string, permissions []string, listenerReq *listener.Request) (*Prompt, bool) {
+func (pdb *PromptDB) AddOrMerge(metadata *prompting.Metadata, constraints *prompting.Constraints, listenerReq *listener.Request) (*Prompt, bool) {
 	pdb.mutex.Lock()
 	defer pdb.mutex.Unlock()
 	userEntry, ok := pdb.perUser[metadata.User]
@@ -195,23 +215,9 @@ func (pdb *PromptDB) AddOrMerge(metadata *prompting.Metadata, path string, permi
 		userEntry = pdb.perUser[metadata.User]
 	}
 
-	availablePermissions, err := prompting.AvailablePermissions(metadata.Interface)
-	if err != nil {
-		// Error should be impossible, since caller has already validated that
-		// iface is valid, and tests check that all valid interfaces have valid
-		// available permissions returned by AvailablePermissions.
-		panic(err)
-	}
-
-	constraints := &PromptConstraints{
-		Path:                 path,
-		Permissions:          permissions,
-		AvailablePermissions: availablePermissions,
-	}
-
 	// Search for an identical existing prompt, merge if found
 	for _, prompt := range userEntry.ByID {
-		if prompt.Snap == metadata.Snap && prompt.Interface == metadata.Interface && prompt.Constraints.equals(constraints) {
+		if prompt.Snap == metadata.Snap && prompt.Interface == metadata.Interface && prompt.Constraints.Equal(constraints) {
 			prompt.listenerReqs = append(prompt.listenerReqs, listenerReq)
 			// Although the prompt itself has not changed, re-record a notice
 			// to re-notify clients to respond to this request. A client may
@@ -340,18 +346,18 @@ func (pdb *PromptDB) HandleNewRule(metadata *prompting.Metadata, constraints *pr
 		if !(prompt.Snap == metadata.Snap && prompt.Interface == metadata.Interface) {
 			continue
 		}
-		matched, err := constraints.Match(prompt.Constraints.Path)
+		matched, err := constraints.Match(prompt.Constraints.PathPattern)
 		if err != nil {
 			return nil, err
 		}
 		if !matched {
 			continue
 		}
-		modified := prompt.Constraints.subtractPermissions(constraints.Permissions)
+		modified, satisfied := prompt.Constraints.Permissions.Subtract(constraints.Permissions)
 		if !modified {
 			continue
 		}
-		if len(prompt.Constraints.Permissions) > 0 && allow == true {
+		if !satisfied && allow == true {
 			pdb.notifyPrompt(metadata.User, id, nil)
 			continue
 		}

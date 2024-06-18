@@ -34,37 +34,52 @@ type constraintsSuite struct{}
 
 var _ = Suite(&constraintsSuite{})
 
-func (s *constraintsSuite) TestConstraintsValidateForInterface(c *C) {
+func (s *constraintsSuite) TestConstraintsUnmarshalJSONForInterface(c *C) {
 	cases := []struct {
-		iface   string
-		pattern string
-		perms   []string
-		errStr  string
+		iface  string
+		data   []byte
+		errStr string
 	}{
 		{
 			"foo",
-			"/invalid/path",
-			[]string{"read"},
+			[]byte(`{
+				"path-pattern": "invalid/path",
+				"permissions": ["read"]
+			}`),
 			"unsupported interface.*",
 		},
 		{
 			"home",
-			"/valid/path",
-			[]string{},
+			[]byte(`{"path-pattern": "/valid/path"}`),
 			fmt.Sprintf("%v", prompting.ErrPermissionsListEmpty),
 		},
 	}
 	for _, testCase := range cases {
-		constraints := &prompting.Constraints{
-			PathPattern: testCase.pattern,
-			Permissions: testCase.perms,
-		}
-		err := constraints.ValidateForInterface(testCase.iface)
+		var constraints prompting.Constraints
+		err := constraints.UnmarshalJSONForInterface(testCase.iface, testCase.data)
 		c.Check(err, ErrorMatches, testCase.errStr)
 	}
 }
 
-func (s *constraintsSuite) TestValidatePermissionsHappy(c *C) {
+func (s *constraintsSuite) TestPermissionsAsList(c *C) {
+	cases := [][]string{
+		{},
+		{"read"},
+		{"write"},
+		{"read", "write"},
+		{"execute"},
+		{"read", "execute"},
+		{"write", "execute"},
+		{"read", "write", "execute"},
+	}
+	for i, expected := range cases {
+		perms := prompting.Permissions(i)
+		result := perms.AsList("home")
+		c.Check(result, DeepEquals, expected)
+	}
+}
+
+func (s *constraintsSuite) TestPermissionsFromListHappy(c *C) {
 	cases := []struct {
 		iface   string
 		initial []string
@@ -87,16 +102,14 @@ func (s *constraintsSuite) TestValidatePermissionsHappy(c *C) {
 		},
 	}
 	for _, testCase := range cases {
-		constraints := prompting.Constraints{
-			Permissions: testCase.initial,
-		}
-		err := constraints.ValidatePermissions(testCase.iface)
+		perms, err := prompting.PermissionsFromList(testCase.iface, testCase.initial)
 		c.Check(err, IsNil, Commentf("testCase: %+v", testCase))
-		c.Check(constraints.Permissions, DeepEquals, testCase.final, Commentf("testCase: %+v", testCase))
+		final := perms.AsList(testCase.iface)
+		c.Check(final, DeepEquals, testCase.final, Commentf("testCase: %+v", testCase))
 	}
 }
 
-func (s *constraintsSuite) TestValidatePermissionsUnhappy(c *C) {
+func (s *constraintsSuite) TestPermissionsFromListUnhappy(c *C) {
 	cases := []struct {
 		iface  string
 		perms  []string
@@ -124,11 +137,9 @@ func (s *constraintsSuite) TestValidatePermissionsUnhappy(c *C) {
 		},
 	}
 	for _, testCase := range cases {
-		constraints := prompting.Constraints{
-			Permissions: testCase.perms,
-		}
-		err := constraints.ValidatePermissions(testCase.iface)
+		perms, err := prompting.PermissionsFromList(testCase.iface, testCase.perms)
 		c.Check(err, ErrorMatches, testCase.errStr, Commentf("testCase: %+v", testCase))
+		c.Check(perms, Equals, prompting.Permissions(0))
 	}
 }
 
@@ -152,7 +163,6 @@ func (*constraintsSuite) TestConstraintsMatch(c *C) {
 	for _, testCase := range cases {
 		constraints := &prompting.Constraints{
 			PathPattern: testCase.pattern,
-			Permissions: []string{"read"},
 		}
 		result, err := constraints.Match(testCase.path)
 		c.Check(err, IsNil, Commentf("test case: %+v", testCase))
@@ -164,85 +174,88 @@ func (s *constraintsSuite) TestConstraintsMatchUnhappy(c *C) {
 	badPath := `bad\pattern\`
 	badConstraints := &prompting.Constraints{
 		PathPattern: badPath,
-		Permissions: []string{"read"},
 	}
 	matches, err := badConstraints.Match(badPath)
 	c.Check(err, Equals, doublestar.ErrBadPattern)
 	c.Check(matches, Equals, false)
 }
 
-func (s *constraintsSuite) TestConstraintsRemovePermission(c *C) {
+func (s *constraintsSuite) TestPermissionsSubtract(c *C) {
 	cases := []struct {
-		initial []string
-		remove  string
-		final   []string
-		err     error
+		initial   []string
+		remove    string
+		final     []string
+		modified  bool
+		satisfied bool
 	}{
 		{
 			[]string{"read", "write", "execute"},
 			"read",
 			[]string{"write", "execute"},
-			nil,
+			true,
+			false,
 		},
 		{
 			[]string{"read", "write", "execute"},
 			"write",
 			[]string{"read", "execute"},
-			nil,
+			true,
+			false,
 		},
 		{
 			[]string{"read", "write", "execute"},
 			"execute",
 			[]string{"read", "write"},
-			nil,
+			true,
+			false,
 		},
 		{
 			[]string{"read", "write", "read"},
 			"read",
 			[]string{"write"},
-			nil,
+			true,
+			false,
 		},
 		{
 			[]string{"read"},
 			"read",
 			[]string{},
-			nil,
+			true,
+			true,
 		},
 		{
 			[]string{"read", "read"},
 			"read",
 			[]string{},
-			nil,
+			true,
+			true,
 		},
 		{
-			[]string{"read", "write", "execute"},
-			"append",
-			[]string{"read", "write", "execute"},
-			prompting.ErrPermissionNotInList,
-		},
-		{
-			[]string{},
-			"read",
-			[]string{},
-			prompting.ErrPermissionNotInList,
+			[]string{"read", "write"},
+			"execute",
+			[]string{"read", "write"},
+			false,
+			false,
 		},
 	}
 	for _, testCase := range cases {
-		constraints := &prompting.Constraints{
-			PathPattern: "/path/to/foo",
-			Permissions: testCase.initial,
-		}
-		err := constraints.RemovePermission(testCase.remove)
-		c.Check(err, Equals, testCase.err)
-		c.Check(constraints.Permissions, DeepEquals, testCase.final)
+		perms, err := prompting.PermissionsFromList("home", testCase.initial)
+		c.Check(err, IsNil)
+		toRemove, err := prompting.PermissionsFromList("home", []string{testCase.remove})
+		c.Check(err, IsNil)
+		modified, satisfied := perms.Subtract(toRemove)
+		final := perms.AsList("home")
+		c.Check(final, DeepEquals, testCase.final, Commentf("testCase: %+v", testCase))
+		c.Check(modified, Equals, testCase.modified, Commentf("testCase: %+v", testCase))
+		c.Check(satisfied, Equals, testCase.satisfied, Commentf("testCase: %+v", testCase))
 	}
 }
 
-func (s *constraintsSuite) TestConstraintsContainPermissions(c *C) {
+func (s *constraintsSuite) TestPermissionsContain(c *C) {
 	cases := []struct {
-		constPerms []string
-		queryPerms []string
-		contained  bool
+		initial   []string
+		other     []string
+		contained bool
 	}{
 		{
 			[]string{"read", "write", "execute"},
@@ -265,32 +278,22 @@ func (s *constraintsSuite) TestConstraintsContainPermissions(c *C) {
 			true,
 		},
 		{
+			[]string{"read", "write"},
 			[]string{"read", "write", "execute"},
-			[]string{"read", "write", "execute", "append"},
 			false,
 		},
 		{
-			[]string{"read", "write", "execute"},
-			[]string{"read", "append"},
-			false,
-		},
-		{
-			[]string{"foo", "bar", "baz"},
-			[]string{"foo", "bar"},
-			true,
-		},
-		{
-			[]string{"foo", "bar", "baz"},
-			[]string{"fizz", "buzz"},
+			[]string{"write"},
+			[]string{"read", "write"},
 			false,
 		},
 	}
 	for _, testCase := range cases {
-		constraints := &prompting.Constraints{
-			PathPattern: "arbitrary",
-			Permissions: testCase.constPerms,
-		}
-		contained := constraints.ContainPermissions(testCase.queryPerms)
+		perms, err := prompting.PermissionsFromList("home", testCase.initial)
+		c.Check(err, IsNil)
+		other, err := prompting.PermissionsFromList("home", testCase.other)
+		c.Check(err, IsNil)
+		contained := perms.Contain(other)
 		c.Check(contained, Equals, testCase.contained, Commentf("testCase: %+v", testCase))
 	}
 }

@@ -20,11 +20,12 @@
 package prompting
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"math/bits"
 
 	"github.com/snapcore/snapd/sandbox/apparmor/notify"
-	"github.com/snapcore/snapd/strutil"
 )
 
 var (
@@ -33,44 +34,78 @@ var (
 	ErrUnrecognizedFilePermission = errors.New("file permissions mask contains unrecognized permission")
 )
 
-type Constraints struct {
-	PathPattern string   `json:"path-pattern,omitempty"`
-	Permissions []string `json:"permissions,omitempty"`
+type Permissions uint32
+
+// Count returns the number of contained permissions.
+func (p Permissions) Count() int {
+	return bits.OnesCount32(uint32(p))
 }
 
-// ValidateForInterface returns nil if the constraints are valid for the given
-// interface, otherwise returns an error.
-func (c *Constraints) ValidateForInterface(iface string) error {
-	return c.validatePermissions(iface)
+// Contain returns true if the given other permissions are a subset of the
+// receiver.
+func (p Permissions) Contain(other Permissions) bool {
+	shared := p & other
+	return shared == other
 }
 
-// validatePermissions checks that the permissions for the given constraints
-// are valid for the given interface. If not, returns an error, otherwise
-// ensures that the permissions are in the order in which they occur in the
-// list of available permissions for that interface.
-func (c *Constraints) validatePermissions(iface string) error {
+// Subtract removes all of the given other permissions from those of the
+// receiver, if they have any in common. Returns whether at least one permission
+// was removed, and whether all permissions were removed.
+func (p *Permissions) Subtract(other Permissions) (modified, satisfied bool) {
+	old := *p
+	*p &= ^other
+	modified = *p != old
+	satisfied = *p == 0
+	return modified, satisfied
+}
+
+// AsList returns the permissions as a list of strings based on the available
+// permissions for the given interface.
+func (p Permissions) AsList(iface string) []string {
 	availablePerms, ok := interfacePermissionsAvailable[iface]
 	if !ok {
-		return fmt.Errorf("unsupported interface: %s", iface)
+		panic(fmt.Sprintf("cannot convert permissions to list for invalid interface: %s", iface))
 	}
-	permsSet := make(map[string]bool, len(c.Permissions))
-	for _, perm := range c.Permissions {
-		if !strutil.ListContains(availablePerms, perm) {
-			return fmt.Errorf("unsupported permission for %s interface: %q", iface, perm)
+	permStrings := make([]string, 0, p.Count())
+	for remaining := p; remaining != 0; remaining = remaining & (remaining - 1) {
+		next := bits.TrailingZeros32(uint32(remaining))
+		permStrings = append(permStrings, availablePerms[next])
+	}
+	return permStrings
+}
+
+// PermissionsFromList converts the given list of permissions for the given
+// interface to Permissions.
+func PermissionsFromList(iface string, perms []string) (Permissions, error) {
+	availablePerms, ok := interfacePermissionsAvailable[iface]
+	if !ok {
+		return 0, fmt.Errorf("unsupported interface: %s", iface)
+	}
+	permissions := Permissions(0)
+permsLoop:
+	for _, perm := range perms {
+		for i, ap := range availablePerms {
+			if ap == perm {
+				permissions |= 1 << i
+				continue permsLoop
+			}
 		}
-		permsSet[perm] = true
+		return 0, fmt.Errorf("unsupported permission for %s interface: %q", iface, perm)
 	}
-	if len(permsSet) == 0 {
-		return ErrPermissionsListEmpty
+	if permissions == 0 {
+		return 0, ErrPermissionsListEmpty
 	}
-	newPermissions := make([]string, 0, len(permsSet))
-	for _, perm := range availablePerms {
-		if exists := permsSet[perm]; exists {
-			newPermissions = append(newPermissions, perm)
-		}
-	}
-	c.Permissions = newPermissions
-	return nil
+	return permissions, nil
+}
+
+type Constraints struct {
+	PathPattern string
+	Permissions Permissions
+}
+
+// Equal returns true if the given other constraints are equal to the receiver.
+func (c *Constraints) Equal(other *Constraints) bool {
+	return c.PathPattern == other.PathPattern && c.Permissions == other.Permissions
 }
 
 // Match returns true if the constraints match the given path, otherwise false.
@@ -80,32 +115,37 @@ func (c *Constraints) Match(path string) (bool, error) {
 	return PathPatternMatch(c.PathPattern, path)
 }
 
-// RemovePermission removes every instance of the given permission from the
-// permissions list associated with the constraints. If the permission does
-// not exist in the list, returns ErrPermissionNotInList.
-func (c *Constraints) RemovePermission(permission string) error {
-	newPermissions := make([]string, 0, len(c.Permissions))
-	for _, perm := range c.Permissions {
-		if perm != permission {
-			newPermissions = append(newPermissions, perm)
-		}
-	}
-	if len(newPermissions) == len(c.Permissions) {
-		return ErrPermissionNotInList
-	}
-	c.Permissions = newPermissions
-	return nil
+// jsonConstraints exists so that we can control how constraints are marshalled
+// to JSON.
+type jsonConstraints struct {
+	PathPattern string   `json:"path-pattern,omitempty"`
+	Permissions []string `json:"permissions,omitempty"`
 }
 
-// ContainPermissions returns true if the constraints include every one of the
-// given permissions.
-func (c *Constraints) ContainPermissions(permissions []string) bool {
-	for _, perm := range permissions {
-		if !strutil.ListContains(c.Permissions, perm) {
-			return false
-		}
+// MarshalJSONForInterface is necessary so that structs containing Constraints
+// can be marshalled to JSON, which requires providing a known interface.
+func (c *Constraints) MarshalJSONForInterface(iface string) ([]byte, error) {
+	jc := jsonConstraints{
+		PathPattern: c.PathPattern,
+		Permissions: c.Permissions.AsList(iface),
 	}
-	return true
+	return json.Marshal(jc)
+}
+
+// UnmarshalJSONForInterface is necessary so that structs containing Constraints
+// can be unmarshalled from JSON, which requires providing a known interface.
+func (c *Constraints) UnmarshalJSONForInterface(iface string, data []byte) error {
+	var jc jsonConstraints
+	err := json.Unmarshal(data, &jc)
+	if err != nil {
+		return err
+	}
+	c.PathPattern = jc.PathPattern
+	c.Permissions, err = PermissionsFromList(iface, jc.Permissions)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 var (
