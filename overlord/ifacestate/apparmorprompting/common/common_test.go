@@ -700,6 +700,18 @@ func (s *commonSuite) TestAbstractPermissionsFromAppArmorFilePermissionsHappy(c 
 			[]string{"read", "write", "execute"},
 		},
 		{
+			// Check that unmapped permissions are discarded without error
+			"home",
+			notify.AA_MAY_READ | notify.AA_MAY_GETCRED,
+			[]string{"read"},
+		},
+		{
+			// Check that unknown permissions are discarded without error
+			"home",
+			notify.AA_MAY_READ | notify.FilePermission(1<<17),
+			[]string{"read"},
+		},
+		{
 			"camera",
 			notify.AA_MAY_WRITE | notify.AA_MAY_READ | notify.AA_MAY_APPEND,
 			[]string{"access"},
@@ -735,27 +747,17 @@ func (s *commonSuite) TestAbstractPermissionsFromAppArmorFilePermissionsUnhappy(
 		},
 		{
 			"home",
-			notify.FilePermission(1 << 17),
-			"received unexpected permission for interface.*",
-		},
-		{
-			"home",
-			notify.AA_MAY_GETCRED | notify.AA_MAY_READ,
-			"received unexpected permission for interface.*",
-		},
-		{
-			"camera",
-			notify.AA_MAY_EXEC,
-			"received unexpected permission for interface.*",
-		},
-		{
-			"camera",
-			notify.AA_MAY_EXEC | notify.AA_MAY_READ,
-			"received unexpected permission for interface.*",
-		},
-		{
-			"home",
 			notify.FilePermission(0),
+			"no abstract permissions.*",
+		},
+		{
+			"home",
+			notify.FilePermission(1 << 17),
+			"no abstract permissions.*",
+		},
+		{
+			"home",
+			notify.AA_MAY_GETCRED,
 			"no abstract permissions.*",
 		},
 	}

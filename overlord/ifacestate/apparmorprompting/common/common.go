@@ -11,6 +11,7 @@ import (
 
 	doublestar "github.com/bmatcuk/doublestar/v4"
 
+	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/sandbox/apparmor/notify"
 	"github.com/snapcore/snapd/strutil"
 )
@@ -247,7 +248,15 @@ func abstractPermissionsFromAppArmorFilePermissions(iface string, permissions in
 		}
 	}
 	if filePerms != notify.FilePermission(0) {
-		return nil, fmt.Errorf("received unexpected permission for interface %s in AppArmor permission mask: %v", iface, filePerms)
+		logger.Noticef("WARNING: cannot map AppArmor permission to abstract permission for the %s interface: %q", iface, filePerms)
+		// Replying to request sends back original (allow | deny) permissions as
+		// allowed, so permissions which are unknown/excluded here will still be
+		// included in the final reply notification (as we desire).
+		//
+		// XXX: If we instead send back the explicit permissions which the user
+		// allowed (or denied), need to be careful to re-include permissions
+		// which were originally requested but were not mapped to abstract
+		// permissions.
 	}
 	if len(abstractPerms) == 0 {
 		origMask := permissions.(notify.FilePermission)
