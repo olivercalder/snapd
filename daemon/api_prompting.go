@@ -233,6 +233,8 @@ func postPrompt(c *Command, r *http.Request, user *auth.UserState) Response {
 	//}
 	if errors.Is(err, requestprompts.ErrUserNotFound) || errors.Is(err, requestprompts.ErrPromptIDNotFound) {
 		return NotFound("%v", err)
+	} else if errors.Is(err, requestrules.ErrPathPatternConflict) {
+		return Conflict("%v", err)
 	} else if err != nil {
 		return BadRequest("%v", err)
 	}
@@ -292,7 +294,9 @@ func postRules(c *Command, r *http.Request, user *auth.UserState) Response {
 			return BadRequest(`must include "rule" field in request body when action is "add"`)
 		}
 		newRule, err := c.d.overlord.InterfaceManager().Prompting().AddRule(userID, postBody.AddRule.Snap, postBody.AddRule.Interface, postBody.AddRule.Constraints, postBody.AddRule.Outcome, postBody.AddRule.Lifespan, postBody.AddRule.Duration)
-		if err != nil {
+		if errors.Is(err, requestrules.ErrPathPatternConflict) {
+			return Conflict("%v", err)
+		} else if err != nil {
 			return BadRequest("%v", err)
 		}
 		return SyncResponse(newRule)

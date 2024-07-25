@@ -18,7 +18,7 @@ import (
 var (
 	ErrInternalInconsistency = errors.New("internal error: prompting rules database left inconsistent")
 	ErrRuleIDNotFound        = errors.New("rule ID is not found")
-	ErrPathPatternConflict   = errors.New("a rule with the same path pattern already exists in the tree")
+	ErrPathPatternConflict   = errors.New("a rule with conflicting path pattern and permission already exists in the rules database")
 	ErrNoMatchingRule        = errors.New("no rules match the given path")
 	ErrUserNotAllowed        = errors.New("the given user is not allowed to request the rule with the given ID")
 )
@@ -505,7 +505,7 @@ func (rdb *RuleDB) AddRule(user uint32, snap string, iface string, constraints *
 		return nil, err
 	}
 	if err, conflictingID, conflictingPermission := rdb.addRuleToTree(newRule); err != nil {
-		return nil, fmt.Errorf("%s: ID: '%s', Permission: '%s'", err, conflictingID, conflictingPermission)
+		return nil, fmt.Errorf("%w: ID: '%s', Permission: '%s'", err, conflictingID, conflictingPermission)
 	}
 	rdb.ByID[newRule.ID] = newRule
 	rdb.save()
@@ -606,7 +606,7 @@ func (rdb *RuleDB) PatchRule(user uint32, id string, constraints *common.Constra
 	}
 	newRule, err := rdb.PopulateNewRule(user, origRule.Snap, origRule.Interface, constraints, outcome, lifespan, duration)
 	if err != nil {
-		rdb.addRuleToTree(origRule) // ignore any new error
+		rdb.addRuleToTree(origRule) // ignore any new error, should not occur
 		// origRule was successfully removed before, so it should now be able
 		// to be successfully re-added without error, and all is unchanged.
 		changeOccurred = false
@@ -619,7 +619,7 @@ func (rdb *RuleDB) PatchRule(user uint32, id string, constraints *common.Constra
 		// origRule was successfully removed before, so it should now be able
 		// to be successfully re-added without error, and all is unchanged.
 		changeOccurred = false
-		return nil, fmt.Errorf("%s: ID: '%s', Permission: '%s'", err, conflictingID, conflictingPermission)
+		return nil, fmt.Errorf("%w: ID: '%s', Permission: '%s'", err, conflictingID, conflictingPermission)
 	}
 	rdb.ByID[newRule.ID] = newRule
 	changeOccurred = true
