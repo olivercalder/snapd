@@ -424,7 +424,7 @@ func (rdb *RuleDB) IsPathAllowed(user uint32, snap string, iface string, path st
 		matchingRule, exists := rdb.ByID[id]
 		if !exists {
 			// Database was left inconsistent, should not occur
-			delete(pathMap, id)
+			delete(pathMap, pathPattern)
 			// Issue a notice for the offending rule, just in case
 			rdb.notifyRule(user, id, nil)
 			continue
