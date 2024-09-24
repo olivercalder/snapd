@@ -47,7 +47,6 @@ type Rule struct {
 	Snap        string                 `json:"snap"`
 	Interface   string                 `json:"interface"`
 	Constraints *prompting.Constraints `json:"constraints"`
-	Outcome     prompting.OutcomeType  `json:"outcome"`
 	Lifespan    prompting.LifespanType `json:"lifespan"`
 	Expiration  time.Time              `json:"expiration,omitempty"`
 }
@@ -55,9 +54,6 @@ type Rule struct {
 // Validate verifies internal correctness of the rule
 func (rule *Rule) validate(currTime time.Time) error {
 	if err := rule.Constraints.ValidateForInterface(rule.Interface); err != nil {
-		return err
-	}
-	if _, err := rule.Outcome.AsBool(); err != nil {
 		return err
 	}
 	if rule.Lifespan == prompting.LifespanSingle {
@@ -99,19 +95,12 @@ type variantEntry struct {
 	RuleID  prompting.IDType
 }
 
-// permissionDB stores a map from path pattern variant to the ID of the rule
-// associated with the variant for the permission associated with the permission
+// interfaceDB stores a map from path pattern variant to the rule entry
+// associated with that variant for the interface associated with the interface
 // DB.
-type permissionDB struct {
-	// permissionDB contains a map from path pattern variant to rule ID
-	VariantEntries map[string]variantEntry
-}
-
-// interfaceDB stores a map from permission to the DB of rules pertaining to that
-// permission for the interface associated with the interface DB.
 type interfaceDB struct {
-	// interfaceDB contains a map from permission to permissionDB for a particular interface
-	PerPermission map[string]*permissionDB
+	// interfaceDB contains a map from path pattern variant to rule entry.
+	VariantEntries map[string]variantEntry
 }
 
 // snapDB stores a map from interface name to the DB of rules pertaining to that
@@ -445,7 +434,7 @@ func (rdb *RuleDB) addRuleToTree(rule *Rule) *prompting_errors.RuleConflictError
 //
 // The caller must ensure that the database lock is held for writing.
 func (rdb *RuleDB) addRulePermissionToTree(rule *Rule, permission string) []prompting_errors.RuleConflict {
-	permVariants := rdb.ensurePermissionDBForUserSnapInterfacePermission(rule.User, rule.Snap, rule.Interface, permission)
+	permVariants := rdb.ensureDBForUserSnapInterface(rule.User, rule.Snap, rule.Interface)
 
 	newVariantEntries := make(map[string]variantEntry, rule.Constraints.PathPattern.NumVariants())
 	expiredRules := make(map[prompting.IDType]bool)
@@ -535,7 +524,7 @@ func (rdb *RuleDB) removeRuleFromTree(rule *Rule) error {
 //
 // The caller must ensure that the database lock is held for writing.
 func (rdb *RuleDB) removeRulePermissionFromTree(rule *Rule, permission string) []error {
-	permVariants, ok := rdb.permissionDBForUserSnapInterfacePermission(rule.User, rule.Snap, rule.Interface, permission)
+	permVariants, ok := rdb.dbForUserSnapInterface(rule.User, rule.Snap, rule.Interface, permission)
 	if !ok || permVariants == nil {
 		err := fmt.Errorf("internal error: no rules in the rule tree for user %d, snap %q, interface %q, permission %q", rule.User, rule.Snap, rule.Interface, permission)
 		return []error{err}
@@ -591,11 +580,11 @@ func errorsJoin(errs ...error) error {
 	return err
 }
 
-// permissionDBForUserSnapInterfacePermission returns the permission DB for the
-// given user, snap, interface, and permission, if it exists.
+// dbForUserSnapInterface returns the rule DB for the given user, snap, and
+// interface, if it exists.
 //
 // The caller must ensure that the database lock is held.
-func (rdb *RuleDB) permissionDBForUserSnapInterfacePermission(user uint32, snap string, iface string, permission string) (*permissionDB, bool) {
+func (rdb *RuleDB) dbForUserSnapInterface(user uint32, snap string, iface string) (*permissionDB, bool) {
 	userSnaps := rdb.perUser[user]
 	if userSnaps == nil {
 		return nil, false
@@ -671,7 +660,7 @@ func (rdb *RuleDB) Close() error {
 // Creates a rule with the given information and adds it to the rule database.
 // If any of the given parameters are invalid, returns an error. Otherwise,
 // returns the newly-added rule, and saves the database to disk.
-func (rdb *RuleDB) AddRule(user uint32, snap string, iface string, constraints *prompting.Constraints, outcome prompting.OutcomeType, lifespan prompting.LifespanType, duration string) (*Rule, error) {
+func (rdb *RuleDB) AddRule(user uint32, snap string, iface string, constraints *prompting.Constraints, lifespan prompting.LifespanType, duration string) (*Rule, error) {
 	rdb.mutex.Lock()
 	defer rdb.mutex.Unlock()
 
@@ -679,7 +668,7 @@ func (rdb *RuleDB) AddRule(user uint32, snap string, iface string, constraints *
 		return nil, prompting_errors.ErrRulesClosed
 	}
 
-	newRule, err := rdb.makeNewRule(user, snap, iface, constraints, outcome, lifespan, duration)
+	newRule, err := rdb.makeNewRule(user, snap, iface, constraints, lifespan, duration)
 	if err != nil {
 		return nil, err
 	}
@@ -710,7 +699,7 @@ func (rdb *RuleDB) AddRule(user uint32, snap string, iface string, constraints *
 // time, to compute the expiration time for the rule, and stores that as part
 // of the rule which is returned. If any of the given parameters are invalid,
 // returns a corresponding error.
-func (rdb *RuleDB) makeNewRule(user uint32, snap string, iface string, constraints *prompting.Constraints, outcome prompting.OutcomeType, lifespan prompting.LifespanType, duration string) (*Rule, error) {
+func (rdb *RuleDB) makeNewRule(user uint32, snap string, iface string, constraints *prompting.Constraints, lifespan prompting.LifespanType, duration string) (*Rule, error) {
 	currTime := time.Now()
 	expiration, err := lifespan.ParseDuration(duration, currTime)
 	if err != nil {
@@ -723,7 +712,6 @@ func (rdb *RuleDB) makeNewRule(user uint32, snap string, iface string, constrain
 		Snap:        snap,
 		Interface:   iface,
 		Constraints: constraints,
-		Outcome:     outcome,
 		Lifespan:    lifespan,
 		Expiration:  expiration,
 	}
@@ -739,15 +727,18 @@ func (rdb *RuleDB) makeNewRule(user uint32, snap string, iface string, constrain
 	return &newRule, nil
 }
 
-// IsPathAllowed checks whether the given path with the given permission is
-// allowed or denied by existing rules for the given user, snap, and interface.
-// If no rule applies, returns prompting_errors.ErrNoMatchingRule.
-func (rdb *RuleDB) IsPathAllowed(user uint32, snap string, iface string, path string, permission string) (bool, error) {
+// CheckRequest checks whether a request with the given path and permissions
+// is allowed or denied by existing rules for the given user, snap, and
+// interface. Returns the list of permissions which are allowed by existing
+// rules and the list of permissions which are unmatched by existing rules, if
+// any, along with a bool indicating whether any permissions were explicitly
+// denied by existing rules, and any error which occurred.
+func (rdb *RuleDB) CheckRequest(user uint32, snap string, iface string, path string, permissions []string) (allowedPerms, remainingPerms []string, denied bool, err error) {
 	rdb.mutex.RLock()
 	defer rdb.mutex.RUnlock()
-	permissionMap, ok := rdb.permissionDBForUserSnapInterfacePermission(user, snap, iface, permission)
-	if !ok || permissionMap == nil {
-		return false, prompting_errors.ErrNoMatchingRule
+	variantMap, ok := rdb.dbForUserSnapInterface(user, snap, iface)
+	if !ok || variantMap == nil {
+		return false, permissions, nil
 	}
 	variantMap := permissionMap.VariantEntries
 	matchingVariants := make([]patterns.PatternVariant, 0)

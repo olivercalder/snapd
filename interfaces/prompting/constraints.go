@@ -35,8 +35,8 @@ import (
 // is matched by the path pattern (according to bash's globstar matching) and
 // the requested permissions are contained in the constraints' permissions.
 type Constraints struct {
-	PathPattern *patterns.PathPattern `json:"path-pattern,omitempty"`
-	Permissions []string              `json:"permissions,omitempty"`
+	PathPattern *patterns.PathPattern  `json:"path-pattern,omitempty"`
+	Permissions map[string]OutcomeType `json:"permissions,omitempty"`
 }
 
 // ValidateForInterface returns nil if the constraints are valid for the given
@@ -49,22 +49,21 @@ func (c *Constraints) ValidateForInterface(iface string) error {
 }
 
 // validatePermissions checks that the permissions for the given constraints
-// are valid for the given interface. If not, returns an error, otherwise
-// ensures that the permissions are in the order in which they occur in the
-// list of available permissions for that interface.
+// are valid for the given interface, and that the outcome for each . If not, returns an error.
 func (c *Constraints) validatePermissions(iface string) error {
 	availablePerms, ok := interfacePermissionsAvailable[iface]
 	if !ok {
 		return prompting_errors.NewInvalidInterfaceError(iface, availableInterfaces())
 	}
-	permsSet := make(map[string]bool, len(c.Permissions))
 	var invalidPerms []string
-	for _, perm := range c.Permissions {
+	for perm, outcome := range c.Permissions {
 		if !strutil.ListContains(availablePerms, perm) {
 			invalidPerms = append(invalidPerms, perm)
 			continue
 		}
-		permsSet[perm] = true
+		if _, err := outcome.AsBool(); err != nil {
+			return fmt.Errorf("invalid outcome for permission %q: %w", perm, err)
+		}
 	}
 	if len(invalidPerms) > 0 {
 		return prompting_errors.NewInvalidPermissionsError(iface, invalidPerms, availablePerms)
@@ -72,13 +71,6 @@ func (c *Constraints) validatePermissions(iface string) error {
 	if len(permsSet) == 0 {
 		return prompting_errors.NewPermissionsListEmptyError(iface, availablePerms)
 	}
-	newPermissions := make([]string, 0, len(permsSet))
-	for _, perm := range availablePerms {
-		if exists := permsSet[perm]; exists {
-			newPermissions = append(newPermissions, perm)
-		}
-	}
-	c.Permissions = newPermissions
 	return nil
 }
 
@@ -101,7 +93,7 @@ func (c *Constraints) Match(path string) (bool, error) {
 // given permissions.
 func (c *Constraints) ContainPermissions(permissions []string) bool {
 	for _, perm := range permissions {
-		if !strutil.ListContains(c.Permissions, perm) {
+		if outcome, exists := c.Permissions[perm]; !exists {
 			return false
 		}
 	}
