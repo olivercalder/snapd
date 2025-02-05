@@ -39,10 +39,10 @@ func iconDownloadFilename(snapID string) string {
 	return filepath.Join(dirs.SnapIconsPoolDir, fmt.Sprintf("%s.icon", snapID))
 }
 
-// iconInstallFilename returns the filepath of the icon in the icons directory
+// IconInstallFilename returns the filepath of the icon in the icons directory
 // for the given snap ID. This is where the icon should be hard-linked from the
 // iconDownloadFilename when the snap is installed on the system.
-func iconInstallFilename(snapID string) string {
+func IconInstallFilename(snapID string) string {
 	if snapID == "" {
 		return ""
 	}
@@ -60,7 +60,7 @@ func linkSnapIcon(snapID string) error {
 	}
 
 	poolPath := iconDownloadFilename(snapID)
-	installPath := iconInstallFilename(snapID)
+	installPath := IconInstallFilename(snapID)
 
 	if !osutil.FileExists(poolPath) {
 		return fmt.Errorf("cannot link snap icon for snap %s: icon does not exist in the icons pool", snapID)
@@ -78,7 +78,7 @@ func unlinkSnapIcon(snapID string) error {
 	if snapID == "" {
 		return nil
 	}
-	if err := os.Remove(iconInstallFilename(snapID)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	if err := os.Remove(IconInstallFilename(snapID)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("cannot unlink snap icon for snap %s: %w", snapID, err)
 	}
 	return nil

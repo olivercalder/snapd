@@ -346,7 +346,6 @@ type DisabledServices = disabledServices
 // snap icon helpers
 var (
 	IconDownloadFilename = iconDownloadFilename
-	IconInstallFilename  = iconInstallFilename
 	LinkSnapIcon         = linkSnapIcon
 	UnlinkSnapIcon       = unlinkSnapIcon
 	DiscardSnapIcon      = discardSnapIcon
