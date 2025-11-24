@@ -60,13 +60,24 @@ func newNoticeBackends(noticeMgr *notices.NoticeManager) (*noticeBackends, error
 		return nil, fmt.Errorf("cannot create interfaces requests run directory: %w", err)
 	}
 
+	if err := os.MkdirAll(dirs.SnapInterfacesRequestsStateDir, 0o755); err != nil {
+		return nil, fmt.Errorf("cannot create interfaces requests state directory: %w", err)
+	}
+
+	// The prompting notice backend is more tightly coupled to the prompt/rule
+	// state, since they rely on the prompt/rule state providing unique IDs.
+	// Thus, store prompt/rule notice state in the same directory as the
+	// prompts/rules themselves.
+
+	// Store prompt notices alongside the prompt ID mapping, in the run dir.
 	path := filepath.Join(dirs.SnapInterfacesRequestsRunDir, "prompt-notices.json")
 	promptNoticeBackend, err := newNoticeTypeBackend(now, nextNoticeTimestamp, path, state.InterfacesRequestsPromptNotice, promptNoticeNamespace)
 	if err != nil {
 		return nil, err
 	}
 
-	path = filepath.Join(dirs.SnapInterfacesRequestsRunDir, "rule-notices.json")
+	// Store rule notices alongside the rule state, in the state dir.
+	path = filepath.Join(dirs.SnapInterfacesRequestsStateDir, "rule-notices.json")
 	ruleNoticeBackend, err := newNoticeTypeBackend(now, nextNoticeTimestamp, path, state.InterfacesRequestsRuleUpdateNotice, ruleNoticeNamespace)
 	if err != nil {
 		return nil, err
