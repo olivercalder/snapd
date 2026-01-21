@@ -23,11 +23,19 @@ package prompting
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
 
+	"github.com/snapcore/snapd/interfaces/builtin"
 	prompting_errors "github.com/snapcore/snapd/interfaces/prompting/errors"
+	"github.com/snapcore/snapd/sandbox/apparmor/notify"
+	"github.com/snapcore/snapd/sandbox/cgroup"
+)
+
+var (
+	cgroupProcessPathInTrackingCgroup = cgroup.ProcessPathInTrackingCgroup
 )
 
 // Request holds information about the content of a prompting request, as well
@@ -58,6 +66,68 @@ type Request struct {
 	Path string
 	// Reply causes a reply to be sent back to the originator of this request.
 	Reply func(allowedPermissions []string) error
+}
+
+// NewListenerRequest parses the given [notify.MsgNotificationGeneric] into a
+// [Request], using the given `listenerReply` function to construct the reply
+// closure which accepts a slice of abstract permissions.
+func NewListenerRequest(msg notify.MsgNotificationGeneric, listenerReply func(id uint64, aaAllowed, aaRequested, userAllowed notify.AppArmorPermission) error) (*Request, error) {
+	pid := msg.PID()
+	cgroup, err := cgroupProcessPathInTrackingCgroup(int(pid))
+	if err != nil {
+		return nil, fmt.Errorf("cannot read cgroup path for request process with PID %d: %w", pid, err)
+	}
+	path := msg.Name()
+	tagsets := msg.DeniedMetadataTagsets()
+	iface, err := InterfaceFromTagsets(tagsets) // TODO: unexport
+	if err != nil {
+		if !errors.Is(err, prompting_errors.ErrNoInterfaceTags) {
+			// There was either more than one interface associated with tags, or
+			// none which applied to all requested permissions.
+			return nil, fmt.Errorf("cannot select interface from metadata tags: %w", err)
+		}
+		// There were no tags registered with a snapd interface, so we
+		// look at the path to decide whether it's "home" or "camera".
+		// XXX: this is a temporary workaround until metadata tags are
+		// supported by the AppArmor parser and kernel.
+		if builtin.DetectCameraFromPath(path) {
+			iface = "camera"
+		} else {
+			iface = "home"
+		}
+	}
+	id := msg.ID()
+	key := buildListenerRequestKey(iface, id)
+	aaAllowed, aaRequested, err := msg.AllowedDeniedPermissions()
+	if err != nil {
+		return nil, err
+	}
+	requestedPerms, err := AbstractPermissionsFromAppArmorPermissions(iface, aaRequested)
+	if err != nil {
+		return nil, err
+	}
+	reply := func(allowedPermissions []string) error {
+		userAllowedAAPerms, err := AbstractPermissionsToAppArmorPermissions(iface, allowedPermissions)
+		if err != nil {
+			return err
+		}
+		return listenerReply(id, aaAllowed, aaRequested, userAllowedAAPerms)
+	}
+	return &Request{
+		Key:           key,
+		UID:           msg.SubjectUID(),
+		PID:           pid,
+		Cgroup:        cgroup,
+		AppArmorLabel: msg.ProcessLabel(),
+		Interface:     iface,
+		Permissions:   requestedPerms,
+		Path:          path,
+		Reply:         reply,
+	}, nil
+}
+
+func buildListenerRequestKey(iface string, id uint64) string {
+	return fmt.Sprintf("kernel:%s:%016X", iface, id)
 }
 
 // Metadata stores information about the origin or applicability of a prompt or

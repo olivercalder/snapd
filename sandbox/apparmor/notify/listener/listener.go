@@ -29,14 +29,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/snapcore/snapd/interfaces/builtin"
-	"github.com/snapcore/snapd/interfaces/prompting"
-	prompting_errors "github.com/snapcore/snapd/interfaces/prompting/errors"
 	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/osutil/epoll"
 	"github.com/snapcore/snapd/sandbox/apparmor"
 	"github.com/snapcore/snapd/sandbox/apparmor/notify"
-	"github.com/snapcore/snapd/sandbox/cgroup"
 	"github.com/snapcore/snapd/timeutil"
 )
 
@@ -56,23 +52,21 @@ var (
 	// someone listening over l.reqs to quickly receive and process them too.
 	readyTimeout = time.Duration(5 * time.Second)
 
-	osOpen                            = os.Open
-	notifyRegisterFileDescriptor      = notify.RegisterFileDescriptor
-	notifyIoctl                       = notify.Ioctl
-	cgroupProcessPathInTrackingCgroup = cgroup.ProcessPathInTrackingCgroup
-	promptingInterfaceFromTagsets     = prompting.InterfaceFromTagsets
+	osOpen                       = os.Open
+	notifyRegisterFileDescriptor = notify.RegisterFileDescriptor
+	notifyIoctl                  = notify.Ioctl
 )
 
 // Listener encapsulates a loop for receiving apparmor notification requests
 // and responding with notification responses, hiding the low-level details.
-type Listener struct {
+type Listener[R any] struct {
 	// once ensures that the Run method is only run once, to avoid closing
 	// a channel multiple times
 	once sync.Once
 
 	// reqs is a channel over which to send requests to the manager.
 	// Only the main run loop may close this channel.
-	reqs chan *prompting.Request
+	reqs chan *R
 
 	// ready is a channel which is closed once all requests which were pending
 	// at time of registration have been re-received from the kernel and sent
@@ -96,6 +90,10 @@ type Listener struct {
 	// that version will be used for all messages sent or received over that
 	// socket.
 	protocolVersion notify.ProtocolVersion
+	// newRequest is a closure which returns a new request given a message and
+	// a closure which builds and sends a response. It should always be called
+	// with buildAndSendResponse passed in as the closure.
+	newRequest func(msg notify.MsgNotificationGeneric, sendResponse func(id uint64, aaAllowed, aaRequested, userAllowed notify.AppArmorPermission) error) (*R, error)
 
 	// socketMu guards the notify file, the epoll instance, and the close chan.
 	socketMu   sync.Mutex
@@ -109,7 +107,7 @@ type Listener struct {
 // Register opens and configures the apparmor notification interface.
 //
 // If the kernel does not support the notification mechanism the error is ErrNotSupported.
-func Register() (listener *Listener, err error) {
+func Register[R any](newReq func(msg notify.MsgNotificationGeneric, sendResponse func(id uint64, aaAllowed, aaRequested, userAllowed notify.AppArmorPermission) error) (*R, error)) (listener *Listener[R], err error) {
 	path := apparmor.NotifySocketPath
 	if override := os.Getenv("PROMPT_NOTIFY_PATH"); override != "" {
 		path = override
@@ -147,14 +145,15 @@ func Register() (listener *Listener, err error) {
 	}
 	logger.Debugf("registered listener with protocol version %d", protoVersion)
 
-	listener = &Listener{
-		reqs: make(chan *prompting.Request),
+	listener = &Listener[R]{
+		reqs: make(chan *R),
 
 		ready:        make(chan struct{}),
 		readyTimer:   timeutil.NewTimer(0), // initialize placeholder non-nil timer
 		pendingCount: pendingCount,
 
 		protocolVersion: protoVersion,
+		newRequest:      newReq,
 
 		notifyFile: notifyFile,
 		poll:       poll,
@@ -181,7 +180,7 @@ var timeAfterFunc = func(d time.Duration, f func()) timeutil.Timer {
 // Any caller which must ensure that a Close is not in progress should hold the
 // lock while checking isClosed, and continue to hold the lock until it is safe
 // for Close to be run.
-func (l *Listener) isClosed() bool {
+func (l *Listener[R]) isClosed() bool {
 	select {
 	case <-l.closeChan:
 		return true
@@ -191,7 +190,7 @@ func (l *Listener) isClosed() bool {
 }
 
 // Close stops the listener and closes the kernel communication file.
-func (l *Listener) Close() error {
+func (l *Listener[R]) Close() error {
 	l.socketMu.Lock()
 	defer l.socketMu.Unlock()
 	if l.isClosed() {
@@ -222,7 +221,7 @@ func (l *Listener) Close() error {
 
 // Reqs returns a read-only channel through which requests may be received.
 // The channel is closed when the Close() method is called or an error occurs.
-func (l *Listener) Reqs() <-chan *prompting.Request {
+func (l *Listener[R]) Reqs() <-chan *R {
 	return l.reqs
 }
 
@@ -236,7 +235,7 @@ func (l *Listener) Reqs() <-chan *prompting.Request {
 //
 // The caller may wish to block new prompt replies or rules until after the
 // ready channel has been closed.
-func (l *Listener) Ready() <-chan struct{} {
+func (l *Listener[R]) Ready() <-chan struct{} {
 	return l.ready
 }
 
@@ -249,7 +248,7 @@ var exitOnError = false
 // Run should only be called once per listener object, and it runs until the
 // listener is closed or errors (if exitOnError is true), and returns the cause.
 // If the listener was intentionally stopped via the Close() method, returns nil.
-func (l *Listener) Run() error {
+func (l *Listener[R]) Run() error {
 	var err error
 	l.once.Do(func() {
 		// Run should only be called once, so this once.Do is really only an
@@ -292,11 +291,13 @@ func (l *Listener) Run() error {
 	return err
 }
 
-var listenerEpollWait = func(l *Listener) ([]epoll.Event, error) {
-	return l.poll.Wait()
+var epollWait = (*epoll.Epoll).Wait
+
+func(l *Listener[R]) epollWait() ([]epoll.Event, error) {
+	return epollWait(l.poll)
 }
 
-func (l *Listener) handleRequests() error {
+func (l *Listener[R]) handleRequests() error {
 	// Get the socket FD with the lock held, so we don't break our contract.
 	// Do this before any check whether the epoll instance is closed, so we
 	// are sure to have the pre-close FD in case the instance is closed after
@@ -305,7 +306,7 @@ func (l *Listener) handleRequests() error {
 	socketFd := int(l.notifyFile.Fd())
 	l.socketMu.Unlock() // unlock immediately, we'll lock again later if needed
 
-	events, err := listenerEpollWait(l)
+	events, err := l.epollWait()
 	if err != nil {
 		// The epoll syscall returned an error, so let's see whether it was
 		// because we closed the epoll FD.
@@ -348,7 +349,7 @@ func (l *Listener) handleRequests() error {
 // doIoctl locks the mutex guarding the notify socket, checks whether the
 // listener is being closed, and if not, sends an ioctl request with the given
 // request type and buffer.
-func (l *Listener) doIoctl(sendOrRecv notify.IoctlRequest, buf notify.IoctlRequestBuffer) ([]byte, error) {
+func (l *Listener[R]) doIoctl(sendOrRecv notify.IoctlRequest, buf notify.IoctlRequestBuffer) ([]byte, error) {
 	l.socketMu.Lock()
 	defer l.socketMu.Unlock()
 	if l.isClosed() {
@@ -361,7 +362,7 @@ func (l *Listener) doIoctl(sendOrRecv notify.IoctlRequest, buf notify.IoctlReque
 // each one into a message notification for the particular mediation class,
 // creates a Request from that message, and attempts to send it to the manager
 // via the request channel.
-func (l *Listener) decodeAndDispatchRequest(buf []byte) error {
+func (l *Listener[R]) decodeAndDispatchRequest(buf []byte) error {
 	for len(buf) > 0 {
 		first, rest, err := notify.ExtractFirstMsg(buf)
 		if err != nil {
@@ -430,7 +431,7 @@ func (l *Listener) decodeAndDispatchRequest(buf []byte) error {
 	return nil
 }
 
-func (l *Listener) parseRequest(class notify.MediationClass, buf []byte) (*prompting.Request, error) {
+func (l *Listener[R]) parseRequest(class notify.MediationClass, buf []byte) (*R, error) {
 	var parseErr error
 	var msg notify.MsgNotificationGeneric
 	switch class {
@@ -443,7 +444,7 @@ func (l *Listener) parseRequest(class notify.MediationClass, buf []byte) (*promp
 		return nil, parseErr
 	}
 
-	return l.newRequest(msg)
+	return l.newRequest(msg, l.buildAndSendResponse)
 }
 
 func parseMsgNotificationFile(buf []byte) (*notify.MsgNotificationFile, error) {
@@ -455,76 +456,6 @@ func parseMsgNotificationFile(buf []byte) (*notify.MsgNotificationFile, error) {
 	return &fmsg, nil
 }
 
-func (l *Listener) newRequest(msg notify.MsgNotificationGeneric) (*prompting.Request, error) {
-	pid := msg.PID()
-	cgroup, err := cgroupProcessPathInTrackingCgroup(int(pid))
-	if err != nil {
-		return nil, fmt.Errorf("cannot read cgroup path for request process with PID %d: %w", pid, err)
-	}
-	path := msg.Name()
-	tagsets := msg.DeniedMetadataTagsets()
-	iface, err := promptingInterfaceFromTagsets(tagsets)
-	if err != nil {
-		if !errors.Is(err, prompting_errors.ErrNoInterfaceTags) {
-			// There was either more than one interface associated with tags, or
-			// none which applied to all requested permissions.
-			return nil, fmt.Errorf("cannot select interface from metadata tags: %w", err)
-		}
-		// There were no tags registered with a snapd interface, so we
-		// look at the path to decide whether it's "home" or "camera".
-		// XXX: this is a temporary workaround until metadata tags are
-		// supported by the AppArmor parser and kernel.
-		if builtin.DetectCameraFromPath(path) {
-			iface = "camera"
-		} else {
-			iface = "home"
-		}
-	}
-	id := msg.ID()
-	key := buildKey(iface, id)
-	aaAllowed, aaRequested, err := msg.AllowedDeniedPermissions()
-	if err != nil {
-		return nil, err
-	}
-	requestedPerms, err := prompting.AbstractPermissionsFromAppArmorPermissions(iface, aaRequested)
-	if err != nil {
-		return nil, err
-	}
-	reply := l.buildReplyClosure(id, iface, aaAllowed, aaRequested)
-	return &prompting.Request{
-		Key:           key,
-		UID:           msg.SubjectUID(),
-		PID:           pid,
-		Cgroup:        cgroup,
-		AppArmorLabel: msg.ProcessLabel(),
-		Interface:     iface,
-		Permissions:   requestedPerms,
-		Path:          path,
-		Reply:         reply,
-	}, nil
-}
-
-func buildKey(iface string, id uint64) string {
-	return fmt.Sprintf("kernel:%s:%016X", iface, id)
-}
-
-// buildReplyClosure builds a closure which checks that the given permissions
-// are valid, converts them to AppArmor permissions for the interface
-// associated with the request, constructs a response which allows those
-// permissions, and sends it to the kernel.
-func (l *Listener) buildReplyClosure(id uint64, iface string, aaAllowed, aaRequested notify.AppArmorPermission) func([]string) error {
-	return func(allowedPermissions []string) error {
-		allowedAAPerms, err := prompting.AbstractPermissionsToAppArmorPermissions(iface, allowedPermissions)
-		if err != nil {
-			return err
-		}
-
-		resp := notify.BuildResponse(l.protocolVersion, id, aaAllowed, aaRequested, allowedAAPerms)
-
-		return encodeAndSendResponse(l, resp)
-	}
-}
-
 // handlePotentialResentMessage handles whether the message has been received
 // with the RESENT flag set or not. If so, then decrement the pending count and
 // return true if this is the final pending request. If not resent, then ensure
@@ -533,7 +464,7 @@ func (l *Listener) buildReplyClosure(id uint64, iface string, aaAllowed, aaReque
 // The kernel is guaranteed to resend all previously-pending messages before it
 // sends any new messages, so if it's NOT resent, then we know the kernel is
 // done sending pending messages, and we should ready immediately.
-func (l *Listener) handlePotentialResentMessage(resent bool) (isFinalPendingReq bool) {
+func (l *Listener[R]) handlePotentialResentMessage(resent bool) (isFinalPendingReq bool) {
 	if resent {
 		return l.decrementPendingCheckFinal()
 	}
@@ -548,7 +479,7 @@ func (l *Listener) handlePotentialResentMessage(resent bool) (isFinalPendingReq 
 //
 // The caller should only call this method if the message associated with the
 // request *was* marked by the kernel as having been previously sent.
-func (l *Listener) decrementPendingCheckFinal() (isFinal bool) {
+func (l *Listener[R]) decrementPendingCheckFinal() (isFinal bool) {
 	l.pendingMu.Lock()
 	defer l.pendingMu.Unlock()
 	if l.pendingCount == 0 {
@@ -568,7 +499,7 @@ func (l *Listener) decrementPendingCheckFinal() (isFinal bool) {
 // If the ready timer timeout callback races with this function call, then it
 // is possible for this function to return before the listener has signalled
 // ready.
-func (l *Listener) ensureReady() (pendingCount int) {
+func (l *Listener[R]) ensureReady() (pendingCount int) {
 	if !l.readyTimer.Stop() {
 		// Timer already fired, so readiness already signalled.
 		return 0
@@ -581,7 +512,7 @@ func (l *Listener) ensureReady() (pendingCount int) {
 //
 // Potential callers must ensure that this method is only called once per
 // listener.
-func (l *Listener) signalReady() (pendingCount int) {
+func (l *Listener[R]) signalReady() (pendingCount int) {
 	l.pendingMu.Lock()
 	defer l.pendingMu.Unlock()
 	pendingCount = l.pendingCount
@@ -590,16 +521,28 @@ func (l *Listener) signalReady() (pendingCount int) {
 	return pendingCount
 }
 
-func (l *Listener) denyMalformedRequest(msg *notify.MsgNotificationOp) {
+func (l *Listener[R]) buildAndSendResponse(id uint64, aaAllowed, aaRequested, userAllowed notify.AppArmorPermission) error {
+	resp := notify.BuildResponse(l.protocolVersion, id, aaAllowed, aaRequested, userAllowed)
+
+	return encodeAndSendResponse(l, resp)
+}
+
+func (l *Listener[R]) denyMalformedRequest(msg *notify.MsgNotificationOp) {
 	resp := msg.BuildDenyResponse()
 	encodeAndSendResponse(l, resp)
 }
 
-var encodeAndSendResponse = func(l *Listener, resp *notify.MsgNotificationResponse) error {
+// XXX: this is cursed, but I'm not sure how to make a mockable variable func
+// with generic parameters?
+type responseSender interface {
+	encodeAndSendResponse(resp *notify.MsgNotificationResponse) error
+}
+
+var encodeAndSendResponse = func(l responseSender, resp *notify.MsgNotificationResponse) error {
 	return l.encodeAndSendResponse(resp)
 }
 
-func (l *Listener) encodeAndSendResponse(resp *notify.MsgNotificationResponse) error {
+func (l *Listener[R]) encodeAndSendResponse(resp *notify.MsgNotificationResponse) error {
 	buf, err := resp.MarshalBinary()
 	if err != nil {
 		return err

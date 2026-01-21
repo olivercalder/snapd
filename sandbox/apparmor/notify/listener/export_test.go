@@ -36,9 +36,9 @@ import (
 
 var (
 	ReadyTimeout = readyTimeout
-	NewRequest   = (*Listener).newRequest
-	BuildKey     = buildKey
 )
+
+type ResponseSender = responseSender
 
 func ExitOnError() (restore func()) {
 	restore = testutil.Backup(&exitOnError)
@@ -46,12 +46,18 @@ func ExitOnError() (restore func()) {
 	return restore
 }
 
-func FakeRequestWithIDVersionAllowDenyIfacePerms(id uint64, version notify.ProtocolVersion, aaAllow, aaDeny notify.FilePermission, iface string, perms []string) *prompting.Request {
-	l := &Listener{
+func FakeRequestWithIDVersionAllowDenyIfacePerms[R any](id uint64, version notify.ProtocolVersion, aaAllow, aaDeny notify.FilePermission, iface string, perms []string) *prompting.Request {
+	l := &Listener[R]{
 		protocolVersion: version,
 	}
 	key := fmt.Sprintf("kernel:%s:%016X", iface, id)
-	reply := l.buildReplyClosure(id, iface, aaAllow, aaDeny)
+	reply := func(allowedPermissions []string) error {
+		userAllowedAAPerms, err := prompting.AbstractPermissionsToAppArmorPermissions(iface, allowedPermissions)
+		if err != nil {
+			return err
+		}
+		return l.buildAndSendResponse(id, aaAllow, aaDeny, userAllowedAAPerms)
+	}
 	return &prompting.Request{
 		Key:         key,
 		Interface:   iface,
@@ -79,9 +85,9 @@ func MockOsOpenWithSocket() (restore func()) {
 	return restore
 }
 
-func MockEpollWait(f func(l *Listener) ([]epoll.Event, error)) (restore func()) {
-	restore = testutil.Backup(&listenerEpollWait)
-	listenerEpollWait = f
+func MockEpollWait(f func(poll *epoll.Epoll) ([]epoll.Event, error)) (restore func()) {
+	restore = testutil.Backup(&epollWait)
+	epollWait = f
 	return restore
 }
 
@@ -109,26 +115,20 @@ func MockEpollWaitNotifyIoctl(protoVersion notify.ProtocolVersion, pendingCount 
 	recvChanRW := make(chan []byte)
 	sendChanRW := make(chan []byte, 1) // need to have buffer size 1 since reply does not run in a goroutine and the test would otherwise block
 	internalRecvChan := make(chan []byte, 1)
-	epollF := func(l *Listener) ([]epoll.Event, error) {
-		// In the real listener, the epoll instance has its own FD and we don't
-		// need to get the notify FD, but here, we get the notify FD directly,
-		// so we need to get it with the socket mutex held to avoid a race.
-		l.socketMu.Lock()
-		socketFd := int(l.notifyFile.Fd())
-		l.socketMu.Unlock()
+	epollF := func(poll *epoll.Epoll) ([]epoll.Event, error) {
 		for {
 			select {
 			case request := <-recvChanRW:
 				internalRecvChan <- request
 				events := []epoll.Event{
 					{
-						Fd:        socketFd,
+						// Fd is ignored in listener tests
 						Readiness: epoll.Readable,
 					},
 				}
 				return events, nil
 			default:
-				if l.poll.IsClosed() {
+				if poll.IsClosed() {
 					return nil, epoll.ErrEpollClosed
 				}
 			}
@@ -149,7 +149,7 @@ func MockEpollWaitNotifyIoctl(protoVersion notify.ProtocolVersion, pendingCount 
 	rfdF := func(fd uintptr) (notify.ProtocolVersion, int, error) {
 		return protoVersion, pendingCount, nil
 	}
-	restoreEpoll := testutil.Mock(&listenerEpollWait, epollF)
+	restoreEpoll := testutil.Mock(&epollWait, epollF)
 	restoreIoctl := testutil.Mock(&notifyIoctl, ioctlF)
 	restoreRegisterFileDescriptor := testutil.Mock(&notifyRegisterFileDescriptor, rfdF)
 
@@ -176,20 +176,12 @@ func SynchronizeNotifyIoctl() (ioctlDone <-chan notify.IoctlRequest, restore fun
 	return ioctlDoneRW, restore
 }
 
-func MockCgroupProcessPathInTrackingCgroup(f func(pid int) (string, error)) (restore func()) {
-	return testutil.Mock(&cgroupProcessPathInTrackingCgroup, f)
-}
-
-func MockPromptingInterfaceFromTagsets(f func(tm notify.TagsetMap) (string, error)) (restore func()) {
-	return testutil.Mock(&promptingInterfaceFromTagsets, f)
-}
-
-func MockEncodeAndSendResponse(f func(l *Listener, resp *notify.MsgNotificationResponse) error) (restore func()) {
+func MockEncodeAndSendResponse(f func(l responseSender, resp *notify.MsgNotificationResponse) error) (restore func()) {
 	return testutil.Mock(&encodeAndSendResponse, f)
 }
 
-func (l *Listener) EpollIsClosed() bool {
-	return l.poll.IsClosed()
+func EpollIsClosed(e *epoll.Epoll) bool {
+	return e.IsClosed()
 }
 
 func MockTimeAfterFunc(f func(d time.Duration, callback func()) timeutil.Timer) (restore func()) {
