@@ -47,9 +47,9 @@ var (
 	ErrReplyNotMatchRequestedPermissions = errors.New("permissions in reply constraints do not include all requested permissions")
 	ErrRuleConflict                      = errors.New("a rule with conflicting path pattern and permission already exists in the rule database")
 
-	// Errors when snapd is stopping and the prompting system has been closed,
-	// so an API request should be retried.
-	ErrPromptingClosed = errors.New("prompting system has already been closed")
+	// Errors when snapd is stopping and the prompting subsystem has been
+	// closed, so an API request should be retried.
+	ErrPromptingClosed = errors.New("prompting subsystem has already been closed")
 
 	// Internal errors which are not handled specifically
 	ErrTooManyPrompts     = errors.New("cannot add new prompts, too many outstanding")

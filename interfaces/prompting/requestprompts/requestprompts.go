@@ -596,7 +596,7 @@ func (pdb *PromptDB) loadRequestKeyPromptIDMapping() error {
 	err = json.NewDecoder(f).Decode(&savedState)
 	if err != nil {
 		// XXX: currently, a decode error causes prompt DB startup to fail,
-		// thus preventing the prompting system from starting. Do we want to
+		// thus preventing the prompting subsystem from starting. Do we want to
 		// instead record a logger.Notice and re-initialize an empty map?
 		return fmt.Errorf("cannot read stored mapping from request key to prompt ID: %w", err)
 	}
