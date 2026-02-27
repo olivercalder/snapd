@@ -65,7 +65,7 @@ type fakeInterfacesRequestsManager struct {
 	clientActivity       bool
 }
 
-func (m *fakeInterfacesRequestsManager) Query(uid uint32, pid int32, apparmorLabel string, iface string) (prompting.OutcomeType, error) {
+func (m *fakeInterfacesRequestsManager) Ask(snapdShuttingDown <-chan struct{}, uid uint32, pid int32, apparmorLabel string, iface string) (prompting.OutcomeType, error) {
 	// TODO
 	return prompting.OutcomeUnset, fmt.Errorf("FIXME")
 }

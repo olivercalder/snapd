@@ -37,10 +37,10 @@ import (
 )
 
 var (
-	requestsQueryCmd = &Command{
-		Path:       "/v2/interfaces/requests/query",
-		GET:        getQuery,
-		ReadAccess: openAccess{},
+	interfacesRequestsCmd = &Command{
+		Path:        "/v2/interfaces/requests",
+		POST:        postInterfacesRequests,
+		WriteAccess: openAccess{},
 	}
 
 	requestsPromptsCmd = &Command{
@@ -309,14 +309,15 @@ var getInterfaceManager = func(c *Command) interfaceManager {
 	return c.d.overlord.InterfaceManager()
 }
 
-type getQueryBody struct {
+type postInterfacesRequestsRequestBody struct {
+	Action        string `json:"action"`
 	Interface     string `json:"interface"`
 	UID           uint32 `json:"uid"`
 	PID           int32  `json:"pid"`
 	AppArmorLabel string `json:"label"`
 }
 
-type getQueryResponse struct {
+type postInterfacesRequestsResponse struct {
 	Outcome prompting.OutcomeType `json:"outcome"`
 }
 
@@ -354,15 +355,22 @@ type postRuleRequestBody struct {
 	PatchRule *patchRuleContents `json:"rule,omitempty"`
 }
 
-func getQuery(c *Command, r *http.Request, user *auth.UserState) Response {
+func postInterfacesRequests(c *Command, r *http.Request, user *auth.UserState) Response {
 	if !getInterfaceManager(c).AppArmorPromptingRunning() {
 		return promptingNotRunningError()
 	}
 
-	var params getQueryBody
+	var postBody postInterfacesRequestsRequestBody
 	decoder := json.NewDecoder(r.Body)
-	if err := decoder.Decode(&params); err != nil {
-		return promptingError(fmt.Errorf("cannot decode request body into prompting query: %w", err))
+	if err := decoder.Decode(&postBody); err != nil {
+		return promptingError(fmt.Errorf("cannot decode request body into ask for prompting access: %w", err))
+	}
+
+	switch postBody.Action {
+	case "ask":
+		// all good
+	default:
+		return promptingError(fmt.Errorf(`"action" field must be "ask"`))
 	}
 
 	// TODO: validate all fields
@@ -371,12 +379,12 @@ func getQuery(c *Command, r *http.Request, user *auth.UserState) Response {
 	// this interface. E.g. if originator is WirePlumber, it may query for the
 	// "audio-record" interface.
 
-	outcome, err := getInterfaceManager(c).InterfacesRequestsManager().Query(params.UID, params.PID, params.AppArmorLabel, params.Interface)
+	outcome, err := getInterfaceManager(c).InterfacesRequestsManager().Ask(c.d.tomb.Dying(), postBody.UID, postBody.PID, postBody.AppArmorLabel, postBody.Interface)
 	if err != nil {
 		return promptingError(err)
 	}
 
-	result := getQueryResponse{
+	result := postInterfacesRequestsResponse{
 		Outcome: outcome,
 	}
 
