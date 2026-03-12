@@ -31,7 +31,7 @@ tags:
     description: List and add assertion types.
   - name: Asynchronous
     description: Return the reference to a change that will occur in the background.
-  - name: AuthenticationRequired
+  - name: AuthenticatedAccess
     description: Access is restricted to the root user.
   - name: ByActionAccess
     description: Access checking depends on the action included in the request body.
@@ -39,6 +39,8 @@ tags:
     description: Interact with changes.
   - name: Experimental
     description: Interact with experimental features.
+  - name: InterfaceAuthenticatedAccess
+    description: Access is restricted to the root user or snaps which have the right interface connection.
   - name: InterfaceOpenAccess
     description: Snaps may access this endpoint if they have the right interface connection.
   - name: Interfaces
@@ -49,8 +51,8 @@ tags:
     description: Do not require the user to authenticate.
   - name: Prompting
     description: Interact with the prompting subsystem.
-  - name: Root
-    description: Requires the user to authenticate with root access.    # TODO Properly describe the difference between AuthenticationRequired and Root
+  - name: RootAccess
+    description: Requires the user to authenticate with root access.    # TODO Properly describe the difference between AuthenticatedAccess and Root
   - name: Snaps
     description: Interact with snaps.
   - name: Store

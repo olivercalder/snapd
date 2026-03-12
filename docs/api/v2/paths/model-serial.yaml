@@ -42,7 +42,7 @@ post:
   tags:
     - Assertions
     - Asynchronous
-    - AuthenticationRequired
+    - AuthenticatedAccess
   summary: Perform an action on the serial assertion
   description: |-
     Performs an asynchronous action on the current serial assertion by sending a
