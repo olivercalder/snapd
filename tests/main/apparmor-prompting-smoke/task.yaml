@@ -74,8 +74,7 @@ prepare: |
 
     # Install a snap which will trigger prompts
     "$TESTSTOOLS"/snaps-state install-local prompt-requester
-    # shellcheck disable=SC2086,SC2154
-    snap connect prompt-requester:$INTERFACE
+    snap connect "prompt-requester:$INTERFACE"
 
 restore: |
     echo "Remove $TARGET_DIR"
@@ -165,7 +164,6 @@ execute: |
         "audio-record")
             # audio-record doesn't use a target file to trigger a prompt.
             # instead, it is used to tell the snap to finish running.
-            # shellcheck disable=SC2016
             TARGET_FILE="/home/test/snap/prompt-requester/current/finish"
             PERMISSION="access"
             # the constraint used in the prompt response
