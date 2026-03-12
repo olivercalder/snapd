@@ -7,7 +7,7 @@ post:
     - Interfaces
     - OpenAccess
     - Prompting
-    - Sync
+    - Synchronous
   summary: Ask for application access
   description: Ask whether an application should be given access via an interface.
   operationId: postInterfacesRequests

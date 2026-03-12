@@ -7,7 +7,7 @@ get:
     - Interfaces
     - OpenAccess
     - Prompting
-    - Sync
+    - Synchronous
   summary: Retrieve all outstanding prompts
   description: Retrieves a list of all outstanding access request prompts.
   operationId: getPrompts

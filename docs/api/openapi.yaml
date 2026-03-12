@@ -104,18 +104,18 @@ components:
       $ref: './v2/components/errors/NoSSHKeysError.yaml'
     NotFoundError:
       $ref: './v2/components/errors/NotFoundError.yaml'
+    PromptingInvalidFieldsError:
+      $ref: './v2/components/errors/PromptingInvalidFieldsError.yaml'
+    PromptingNotRunningError:
+      $ref: './v2/components/errors/PromptingNotRunningError.yaml'
+    PromptingReplyNotMatchRequestError:
+      $ref: './v2/components/errors/PromptingReplyNotMatchRequestError.yaml'
+    PromptingRuleConflictError:
+      $ref: './v2/components/errors/PromptingRuleConflictError.yaml'
     SnapNotInstalledError:
       $ref: './v2/components/errors/SnapNotInstalledError.yaml'
     UserNotFoundError:
       $ref: './v2/components/errors/UserNotFoundError.yaml'
-    PromptingNotRunningError:
-      $ref: './v2/components/errors/PromptingNotRunningError.yaml'
-    PromptingRuleConflictError:
-      $ref: './v2/components/errors/PromptingRuleConflictError.yaml'
-    PromptingInvalidFieldsError:
-      $ref: './v2/components/errors/PromptingInvalidFieldsError.yaml'
-    PromptingReplyNotMatchRequestError:
-      $ref: './v2/components/errors/PromptingReplyNotMatchRequestError.yaml'
 
     Activator:
       $ref: './v2/components/schemas/Activator.yaml'
