@@ -9,7 +9,7 @@ get:
   summary: Get the current serial assertion
   description: |-
     Retrieves the current serial assertion for the system. The serial assertion
-    is a statement used to bind a device identity to it's public key, provided by the store.
+    is a statement used to bind a device identity to itspublic key, provided by the store.
   externalDocs:
     description: Read more about serial assertions on the Ubuntu Core documentation.
     url: https://documentation.ubuntu.com/core/reference/assertions/serial/

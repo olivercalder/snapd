@@ -52,7 +52,7 @@ tags:
   - name: Prompting
     description: Interact with the prompting subsystem.
   - name: RootAccess
-    description: Requires the user to authenticate with root access.    # TODO Properly describe the difference between AuthenticatedAccess and Root
+    description: Requires the user to authenticate with root access.    # TODO Properly describe the difference between AuthenticatedAccess and RootAccess
   - name: Snaps
     description: Interact with snaps.
   - name: Store
