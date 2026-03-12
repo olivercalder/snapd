@@ -4,8 +4,8 @@
 get:
   tags:
     - Experimental
+    - InterfaceOpenAccess
     - Interfaces
-    - OpenAccess
     - Prompting
     - Synchronous
   summary: Retrieve a prompt by ID
@@ -38,8 +38,8 @@ get:
 post:
   tags:
     - Experimental
+    - InterfaceOpenAccess
     - Interfaces
-    - OpenAccess
     - Prompting
     - Synchronous
   summary: Reply to a prompt

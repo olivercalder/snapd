@@ -33,10 +33,14 @@ tags:
     description: Return the reference to a change that will occur in the background.
   - name: AuthenticationRequired
     description: Access is restricted to the root user.
+  - name: ByActionAccess
+    description: Access checking depends on the action included in the request body.
   - name: Changes
     description: Interact with changes.
   - name: Experimental
     description: Interact with experimental features.
+  - name: InterfaceOpenAccess
+    description: Snaps may access this endpoint if they have the right interface connection.
   - name: Interfaces
     description: Display and manage interactions between snaps.
   - name: Notices
@@ -44,7 +48,7 @@ tags:
   - name: OpenAccess
     description: Do not require the user to authenticate.
   - name: Prompting
-    description:  Interact with the prompting subsystem.
+    description: Interact with the prompting subsystem.
   - name: Root
     description: Requires the user to authenticate with root access.    # TODO Properly describe the difference between AuthenticationRequired and Root
   - name: Snaps

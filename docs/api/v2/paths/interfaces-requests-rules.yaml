@@ -4,8 +4,8 @@
 get:
   tags:
     - Experimental
+    - InterfaceOpenAccess
     - Interfaces
-    - OpenAccess
     - Prompting
     - Synchronous
   summary: Retrieve all rules
@@ -41,8 +41,8 @@ get:
 post:
   tags:
     - Experimental
+    - InterfaceOpenAccess
     - Interfaces
-    - OpenAccess
     - Prompting
     - Synchronous
   summary: Create or remove rules

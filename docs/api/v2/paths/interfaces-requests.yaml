@@ -3,9 +3,9 @@
 
 post:
   tags:
+    - ByActionAccess
     - Experimental
     - Interfaces
-    - OpenAccess
     - Prompting
     - Synchronous
   summary: Ask for application access

@@ -4,8 +4,8 @@
 get:
   tags:
     - Experimental
+    - InterfaceOpenAccess
     - Interfaces
-    - OpenAccess
     - Prompting
     - Synchronous
   summary: Retrieve a rule by ID
@@ -33,8 +33,8 @@ get:
 post:
   tags:
     - Experimental
+    - InterfaceOpenAccess
     - Interfaces
-    - OpenAccess
     - Prompting
     - Synchronous
   summary: Patch or remove a rule by ID
