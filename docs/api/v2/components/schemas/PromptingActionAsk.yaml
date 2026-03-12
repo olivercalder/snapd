@@ -20,4 +20,6 @@ properties:
       - audio-record
   pid:
     type: integer
+    format: int32
+    minimum: 1
     description: The PID of the process for which to request access.
