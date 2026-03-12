@@ -14,8 +14,8 @@ properties:
   kind:
     type: string
     description: A machine-readable string identifying the error type.
-    enum: 
-      - interfaces-requests-rule-conict
+    enum:
+      - interfaces-requests-rule-conflict
   value:
     type: object
     description: Additional structured data about the conflict.
