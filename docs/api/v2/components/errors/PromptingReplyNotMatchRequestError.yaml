@@ -17,8 +17,11 @@ properties:
     enum:
       - interfaces-requests-reply-not-match-request
   value:
-    oneOf:
-      - type: object
+    type: object
+    description: Information about the reply field(s) which did not match the request.
+    properties:
+      path-pattern:
+        type: object
         required:
           - requested-path
           - replied-pattern
@@ -29,7 +32,8 @@ properties:
           replied-pattern:
             type: string
             example: "/home/ubuntu/Pictures/**/*.txt"
-      - type: object
+      permissions:
+        type: object
         required:
           - requested-permissions
           - replied-permissions
