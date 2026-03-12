@@ -29,6 +29,8 @@ get:
             $ref: '../components/schemas/PromptingRule.yaml'
     404:
       $ref: '../components/responses/NotFound.yaml'
+    500:
+      $ref: '../components/responses/InternalError.yaml'
 
 post:
   tags:
@@ -68,5 +70,7 @@ post:
       $ref: '../components/responses/BadRequest.yaml'
     404:
       $ref: '../components/responses/NotFound.yaml'
+    409:
+      $ref: '../components/responses/Conflict.yaml'
     500:
       $ref: '../components/responses/InternalError.yaml'
