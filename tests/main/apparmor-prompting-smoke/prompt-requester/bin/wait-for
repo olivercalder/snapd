@@ -1,4 +1,7 @@
-#!/bin/sh
+#!/bin/sh -e
+
+# Write the PID to $HOME/running.pid
+echo "$$" > "$HOME/running.pid"
 
 # Wait until file exists, else give up after a timeout
 #shellcheck disable=SC2034

@@ -166,7 +166,7 @@ execute: |
             # audio-record doesn't use a target file to trigger a prompt.
             # instead, it is used to tell the snap to finish running.
             # shellcheck disable=SC2016
-            TARGET_FILE="$(tests.session -u test exec snap run --shell prompt-requester.wait-for -c 'echo $HOME')/finish"
+            TARGET_FILE="/home/test/snap/prompt-requester/current/finish"
             PERMISSION="access"
             # the constraint used in the prompt response
             CONSTRAINT="{\"permissions\": [\"$PERMISSION\"]}"
@@ -204,9 +204,12 @@ execute: |
         tests.session -u test exec prompt-requester.wait-for "$TARGET_FILE" &
         WAITER_SHELL_PID="$!"
         # Background PID will be of the tests.session command, not the snap,
-        # so need to get the snap PID directly.
-        sleep 1 # make sure there's time for the snap to start
-        WAITER_SNAP_PID="$(pgrep -u test wait-for)"
+        # so need to get the snap PID. The snap will write its own PID to
+        # /home/test/snap/prompt-requester/current/running.pid
+        retry --wait 1 -n 10 test -f /home/test/snap/prompt-requester/current/running.pid
+        WAITER_SNAP_PID="$(cat /home/test/snap/prompt-requester/current/running.pid)"
+        # Remove it so we don't see the old PID later if we try again.
+        rm /home/test/snap/prompt-requester/current/running.pid
         ASK_BODY="{\"action\": \"ask\", \"interface\": \"$INTERFACE\", \"pid\": $WAITER_SNAP_PID}"
         echo "$ASK_BODY" | tests.session -u test exec snap debug api -X POST -H 'Content-Type: application/json' "/v2/interfaces/requests" >"$TMP_STDOUT" 2>"$TMP_STDERR" &
         REQUESTER_PID="$!"
@@ -291,9 +294,12 @@ execute: |
         tests.session -u test exec prompt-requester.wait-for "$TARGET_FILE" &
         WAITER_SHELL_PID="$!"
         # Background PID will be of the tests.session command, not the snap,
-        # so need to get the snap PID directly.
-        sleep 1 # make sure there's time for the snap to start
-        WAITER_SNAP_PID="$(pgrep -u test wait-for)"
+        # so need to get the snap PID. The snap will write its own PID to
+        # /home/test/snap/prompt-requester/current/running.pid
+        retry --wait 1 -n 10 test -f /home/test/snap/prompt-requester/current/running.pid
+        WAITER_SNAP_PID="$(cat /home/test/snap/prompt-requester/current/running.pid)"
+        # Remove it so we don't see the old PID later if we try again.
+        rm /home/test/snap/prompt-requester/current/running.pid
         ASK_BODY="{\"action\": \"ask\", \"interface\": \"$INTERFACE\", \"pid\": $WAITER_SNAP_PID}"
         echo "$ASK_BODY" | tests.session -u test exec snap debug api -X POST -H 'Content-Type: application/json' "/v2/interfaces/requests" >"$TMP_STDOUT" 2>"$TMP_STDERR" &
         REQUESTER_PID="$!"
