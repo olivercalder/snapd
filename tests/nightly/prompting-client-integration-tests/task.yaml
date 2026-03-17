@@ -54,6 +54,11 @@ prepare: |
     #adduser test video && newgrp video
     #chmod 666 /dev/video0
 
+    # Naive camera tests rely on a fake /dev/video9, so a real device shouldn't exist
+    test ! -e /dev/video9
+    touch /dev/video9
+    tests.cleanup defer rm /dev/video9
+
     echo "Install the prompting-client snap from latest/edge"
     snap set system experimental.user-daemons=true
     tests.cleanup defer snap set system experimental.user-daemons=false
