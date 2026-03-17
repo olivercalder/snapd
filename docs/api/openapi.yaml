@@ -32,7 +32,7 @@ tags:
   - name: Asynchronous
     description: Return the reference to a change that will occur in the background.
   - name: AuthenticatedAccess
-    description: Access is restricted to the root user.
+    description: Allows requests from authenticated users (root, provide macaroon, or via polkit) provided they are not received on snapd-snap.socket.
   - name: ByActionAccess
     description: Access checking depends on the action included in the request body.
   - name: Changes
@@ -40,19 +40,19 @@ tags:
   - name: Experimental
     description: Interact with experimental features.
   - name: InterfaceAuthenticatedAccess
-    description: Access is restricted to the root user or snaps which have the right interface connection.
+    description: Allows requests from authenticated users (root, provide macaroon, or via polkit), including requests from snapd-snap.socket for snaps that plug one of the provided interfaces.
   - name: InterfaceOpenAccess
-    description: Snaps may access this endpoint if they have the right interface connection.
+    description: Allows requests without authentication, including requests from snapd-snap.socket for snaps that plug one of the provided interfaces.
   - name: Interfaces
     description: Display and manage interactions between snaps.
   - name: Notices
     description: Interact with notices.
   - name: OpenAccess
-    description: Do not require the user to authenticate.
+    description: Allows requests without authentication, provided they are not received on snapd-snap.socket.
   - name: Prompting
     description: Interact with the prompting subsystem.
   - name: RootAccess
-    description: Requires the user to authenticate with root access.    # TODO Properly describe the difference between AuthenticatedAccess and RootAccess
+    description: Allows requests from the root user, provided they were not received on snapd-snap.socket.
   - name: Snaps
     description: Interact with snaps.
   - name: Store
