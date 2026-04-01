@@ -378,7 +378,7 @@ func (s *apparmorpromptingSuite) simulateRequest(c *C, reqChan chan *prompting.R
 	c.Check(prompt.PID, Equals, req.PID)
 	c.Check(prompt.Cgroup, Equals, req.Cgroup)
 	c.Check(prompt.Interface, Equals, "home")
-	c.Check(prompt.Constraints.Path(), Equals, req.Path)
+	c.Check(prompt.Constraints.OriginalPath(), Equals, req.Path)
 
 	// Check that we can retrieve that prompt by ID
 	promptByID, err := mgr.PromptWithID(s.defaultUser, prompt.ID, clientActivity)
@@ -424,6 +424,89 @@ func waitForReply(replyChan chan []string) ([]string, error) {
 	case <-time.After(100 * time.Millisecond):
 		return nil, errNoReply
 	}
+}
+
+func (s *apparmorpromptingSuite) TestHandleReplyUnusualPaths(c *C) {
+	_, reqChan, restore := apparmorprompting.MockListener()
+	defer restore()
+
+	mgr, err := apparmorprompting.New(s.st)
+	c.Assert(err, IsNil)
+
+	const clientActivity = true
+
+	for i, testCase := range []struct {
+		originalPath string
+		expectedPath string
+		pathJSON     string
+	}{
+		// Normal path
+		{`/foo/bar`, `/foo/bar`, `"/foo/bar"`},
+		// Paths with individual special characters
+		{`/foo*bar`, `/foo\*bar`, `"/foo\\*bar"`},
+		{`/foo?bar`, `/foo\?bar`, `"/foo\\?bar"`},
+		{`/foo\bar`, `/foo\\bar`, `"/foo\\\\bar"`},
+		{`/foo(bar,baz)`, `/foo\(bar,baz\)`, `"/foo\\(bar,baz\\)"`},
+		{`/foo[bar,baz]`, `/foo\[bar,baz\]`, `"/foo\\[bar,baz\\]"`},
+		{`/foo{bar,baz}`, `/foo\{bar,baz\}`, `"/foo\\{bar,baz\\}"`},
+		// Paths with special characters preceded by a literal '\' (as decoy)
+		{`/foo\*bar`, `/foo\\\*bar`, `"/foo\\\\\\*bar"`},
+		{`/foo\?bar`, `/foo\\\?bar`, `"/foo\\\\\\?bar"`},
+		{`/foo\\bar`, `/foo\\\\bar`, `"/foo\\\\\\\\bar"`},
+		{`/foo\(bar,baz\)`, `/foo\\\(bar,baz\\\)`, `"/foo\\\\\\(bar,baz\\\\\\)"`},
+		{`/foo\[bar,baz\]`, `/foo\\\[bar,baz\\\]`, `"/foo\\\\\\[bar,baz\\\\\\]"`},
+		{`/foo\{bar,baz\}`, `/foo\\\{bar,baz\\\}`, `"/foo\\\\\\{bar,baz\\\\\\}"`},
+		// Path with all the special characters and some not so special characters
+		{`/foo*?()[]{}'",\`, `/foo\*\?\(\)\[\]\{\}'",\\`, `"/foo\\*\\?\\(\\)\\[\\]\\{\\}'\",\\\\"`},
+		// Path with square brackets and unicode characters
+		{`/foo/bar/[アニメ][ゲーム動画].mkv`, `/foo/bar/\[アニメ\]\[ゲーム動画\].mkv`, `"/foo/bar/\\[アニメ\\]\\[ゲーム動画\\].mkv"`},
+	} {
+		key := fmt.Sprintf("fake:%d", i)
+		req, replyChan := requestWithReplyChan(&prompting.Request{Key: key, Path: testCase.originalPath})
+		_, prompt := s.simulateRequest(c, reqChan, mgr, req, false)
+
+		// Validate the paths presented by the prompt constraints
+		c.Assert(prompt.Constraints.Path(), Equals, testCase.expectedPath, Commentf("testCase: %+v", testCase))
+		c.Assert(prompt.Constraints.OriginalPath(), Equals, testCase.originalPath, Commentf("testCase: %+v", testCase))
+
+		// Marshal the prompt to json so we can check the marshalled path
+		marshalled, err := prompt.MarshalJSON()
+		c.Assert(err, IsNil)
+		c.Check(string(marshalled), testutil.Contains, fmt.Sprintf(`"path":%s`, testCase.pathJSON), Commentf("testCase: %+v", testCase))
+
+		// Reply to the request with a path pattern equal to the prompt path as
+		// it was marshalled into JSON.
+		constraintsJSON := prompting.ConstraintsJSON{
+			"path-pattern": json.RawMessage(testCase.pathJSON),
+			"permissions":  json.RawMessage(`["read"]`),
+		}
+
+		// First, validate that the escaped json pattern will be parsed as
+		// expected.
+		constraints, err := prompting.UnmarshalReplyConstraints("home", prompting.OutcomeAllow, prompting.LifespanSingle, "", constraintsJSON)
+		c.Assert(err, IsNil, Commentf("testCase: %+v", testCase))
+		c.Check(constraints.PathPattern().String(), Equals, testCase.expectedPath, Commentf("testCase: %+v", testCase))
+		// Next, check that the parsed path pattern matches the original path.
+		matches, err := constraints.PathPattern().Match(testCase.originalPath)
+		c.Assert(err, IsNil, Commentf("testCase: %+v", testCase))
+		c.Check(matches, Equals, true, Commentf("testCase: %+v", testCase))
+		matches, err = constraints.PathPattern().Match(prompt.Constraints.OriginalPath())
+		c.Assert(err, IsNil, Commentf("testCase: %+v", testCase))
+		c.Check(matches, Equals, true, Commentf("testCase: %+v", testCase))
+
+		// Now actually send reply
+		satisfied, err := mgr.HandleReply(s.defaultUser, prompt.ID, constraintsJSON, prompting.OutcomeAllow, prompting.LifespanSingle, "", clientActivity)
+		c.Check(err, IsNil, Commentf("testCase: %+v", testCase))
+		c.Check(satisfied, HasLen, 0)
+
+		// Simulate the listener receiving the response
+		allowedPermissions, err := waitForReply(replyChan)
+		c.Assert(err, IsNil)
+		expectedPerms := []string{"read"}
+		c.Check(allowedPermissions, DeepEquals, expectedPerms)
+	}
+
+	c.Assert(mgr.Stop(), IsNil)
 }
 
 func (s *apparmorpromptingSuite) TestHandleReplyErrors(c *C) {

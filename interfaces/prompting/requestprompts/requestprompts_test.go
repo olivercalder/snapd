@@ -503,6 +503,7 @@ func (s *requestpromptsSuite) TestAddOrMergeNonMerges(c *C) {
 	c.Check(prompt1.Cgroup, Equals, metadata.Cgroup)
 	c.Check(prompt1.Interface, Equals, metadata.Interface)
 	c.Check(prompt1.Constraints.Path(), Equals, path)
+	c.Check(prompt1.Constraints.OriginalPath(), Equals, path)
 	c.Check(prompt1.Constraints.OutstandingPermissions(), DeepEquals, permissions)
 	c.Assert(prompt1.Requests(), HasLen, 1)
 	c.Check(prompt1.Requests()[0].Key, Equals, "fake:1")
@@ -540,6 +541,7 @@ func (s *requestpromptsSuite) TestAddOrMergeNonMerges(c *C) {
 	c.Check(prompt2.Cgroup, Equals, metadata.Cgroup)
 	c.Check(prompt2.Interface, Equals, metadata.Interface)
 	c.Check(prompt2.Constraints.Path(), Equals, path)
+	c.Check(prompt2.Constraints.OriginalPath(), Equals, path)
 	c.Check(prompt2.Constraints.OutstandingPermissions(), DeepEquals, permissions)
 
 	// Request was added to the requests list
@@ -582,6 +584,7 @@ func (s *requestpromptsSuite) TestAddOrMergeNonMerges(c *C) {
 	c.Check(prompt3.Cgroup, Equals, metadata.Cgroup)
 	c.Check(prompt3.Interface, Equals, metadata.Interface)
 	c.Check(prompt3.Constraints.Path(), Equals, path)
+	c.Check(prompt3.Constraints.OriginalPath(), Equals, path)
 	c.Check(prompt3.Constraints.OutstandingPermissions(), DeepEquals, permissions)
 	c.Assert(prompt3.Requests(), HasLen, 1)
 	c.Check(prompt3.Requests()[0].Key, Equals, "fake:3")
@@ -624,6 +627,7 @@ func (s *requestpromptsSuite) TestAddOrMergeNonMerges(c *C) {
 	c.Check(prompt4.Cgroup, Equals, metadata.Cgroup)
 	c.Check(prompt4.Interface, Equals, metadata.Interface)
 	c.Check(prompt4.Constraints.Path(), Equals, path)
+	c.Check(prompt4.Constraints.OriginalPath(), Equals, path)
 	c.Check(prompt4.Constraints.OutstandingPermissions(), DeepEquals, permissions)
 	c.Assert(prompt4.Requests(), HasLen, 1)
 	c.Check(prompt4.Requests()[0].Key, Equals, "fake:4")
@@ -668,6 +672,7 @@ func (s *requestpromptsSuite) TestAddOrMergeNonMerges(c *C) {
 	c.Check(prompt5.Cgroup, Equals, metadata.Cgroup)
 	c.Check(prompt5.Interface, Equals, metadata.Interface)
 	c.Check(prompt5.Constraints.Path(), Equals, path)
+	c.Check(prompt5.Constraints.OriginalPath(), Equals, path)
 	c.Check(prompt5.Constraints.OutstandingPermissions(), DeepEquals, permissions)
 	c.Assert(prompt5.Requests(), HasLen, 1)
 	c.Check(prompt5.Requests()[0].Key, Equals, "fake:5")
@@ -715,6 +720,7 @@ func (s *requestpromptsSuite) TestAddOrMergeNonMerges(c *C) {
 	c.Check(prompt6.Cgroup, Equals, metadata.Cgroup)
 	c.Check(prompt6.Interface, Equals, metadata.Interface)
 	c.Check(prompt6.Constraints.Path(), Equals, path)
+	c.Check(prompt6.Constraints.OriginalPath(), Equals, path)
 	c.Check(prompt6.Constraints.OutstandingPermissions(), DeepEquals, permissions)
 	c.Assert(prompt6.Requests(), HasLen, 1)
 	c.Check(prompt6.Requests()[0].Key, Equals, "fake:6")
@@ -819,6 +825,7 @@ func (s *requestpromptsSuite) TestAddOrMergeMerges(c *C) {
 	c.Check(prompt1.Cgroup, Equals, metadata.Cgroup)
 	c.Check(prompt1.Interface, Equals, metadata.Interface)
 	c.Check(prompt1.Constraints.Path(), Equals, path)
+	c.Check(prompt1.Constraints.OriginalPath(), Equals, path)
 	c.Check(prompt1.Constraints.OutstandingPermissions(), DeepEquals, permissions)
 
 	stored, err = pdb.Prompts(metadata.User, clientActivity)
@@ -851,6 +858,58 @@ func (s *requestpromptsSuite) TestAddOrMergeMerges(c *C) {
 	// Merged prompts should create mapping from new request key to existing prompt ID
 	expectedMap["fake:3"] = requestprompts.RequestMapEntry{PromptID: 1, UserID: s.defaultUser}
 	s.checkWrittenRequestMap(c, expectedMap)
+}
+
+func (s *requestpromptsSuite) TestAddOrMergeEscapesPath(c *C) {
+	// Mock timer so we don't get irrelevant timeouts during the test
+	restore := requestprompts.MockTimeAfterFunc(func(d time.Duration, f func()) timeutil.Timer {
+		return testtime.AfterFunc(d, f)
+	})
+	defer restore()
+
+	pdb, err := requestprompts.New(s.defaultNotifyPrompt)
+	c.Assert(err, IsNil)
+	defer pdb.Close()
+
+	metadata := &prompting.Metadata{
+		User:      s.defaultUser,
+		Snap:      "nextcloud",
+		PID:       1234,
+		Cgroup:    "some/cgroup/path",
+		Interface: "home",
+	}
+	permissions := []string{"read", "write", "execute"}
+
+	for i, testCase := range []struct {
+		originalPath string
+		expectedPath string
+	}{
+		{`/foo/bar`, `/foo/bar`},
+		{`/foo*bar`, `/foo\*bar`},
+		{`/foo?bar`, `/foo\?bar`},
+		{`/foo\bar`, `/foo\\bar`},
+		{`/foo(bar,baz)`, `/foo\(bar,baz\)`},
+		{`/foo[bar,baz]`, `/foo\[bar,baz\]`},
+		{`/foo{bar,baz}`, `/foo\{bar,baz\}`},
+		{`/foo\*bar`, `/foo\\\*bar`},
+		{`/foo\?bar`, `/foo\\\?bar`},
+		{`/foo\\bar`, `/foo\\\\bar`},
+		{`/foo\(bar,baz\)`, `/foo\\\(bar,baz\\\)`},
+		{`/foo\[bar,baz\]`, `/foo\\\[bar,baz\\\]`},
+		{`/foo\{bar,baz\}`, `/foo\\\{bar,baz\\\}`},
+		{`/foo*?()[]{}'",\`, `/foo\*\?\(\)\[\]\{\}'",\\`},
+		{`/foo/bar/[アニメ][ゲーム動画].mkv`, `/foo/bar/\[アニメ\]\[ゲーム動画\].mkv`},
+	} {
+		req := &prompting.Request{Key: fmt.Sprintf("fake:%d", i)}
+
+		prompt, merged, err := pdb.AddOrMerge(metadata, testCase.originalPath, permissions, permissions, req)
+		c.Assert(err, IsNil)
+		c.Assert(prompt, NotNil)
+		c.Assert(merged, Equals, false)
+
+		c.Check(prompt.Constraints.OriginalPath(), Equals, testCase.originalPath)
+		c.Check(prompt.Constraints.Path(), Equals, testCase.expectedPath)
+	}
 }
 
 func (s *requestpromptsSuite) TestAddOrMergeDuplicateRequests(c *C) {

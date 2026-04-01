@@ -37,6 +37,7 @@ import (
 	"github.com/snapcore/snapd/interfaces/prompting"
 	prompting_errors "github.com/snapcore/snapd/interfaces/prompting/errors"
 	"github.com/snapcore/snapd/interfaces/prompting/internal/maxidmmap"
+	"github.com/snapcore/snapd/interfaces/prompting/patterns"
 	"github.com/snapcore/snapd/logger"
 	"github.com/snapcore/snapd/osutil"
 	"github.com/snapcore/snapd/strutil"
@@ -340,10 +341,18 @@ func (pc *promptConstraints) buildResponse(deniedPermissions []string) []string 
 	return allowedPerms
 }
 
-// Path returns the path associated with the request to which the receiving
-// prompt constraints apply.
+// Path returns the path associated with prompt constraints. This is equal to
+// the originally requested path, but with any special path pattern characters
+// escaped by a '\' character.
 func (pc *promptConstraints) Path() string {
 	return pc.path
+}
+
+// OriginalPath returns the path associated with the request to which the
+// receiving prompt constraints apply. This is equal to Path() but with any
+// '\' characters which are used to escape another character removed.
+func (pc *promptConstraints) OriginalPath() string {
+	return patterns.UnescapeLiteralPath(pc.path)
 }
 
 // OutstandingPermissions returns the outstanding unsatisfied permissions
@@ -790,8 +799,10 @@ func (pdb *PromptDB) AddOrMerge(metadata *prompting.Metadata, path string, reque
 		pdb.perUser[metadata.User] = userEntry
 	}
 
+	escapedPath := patterns.EscapeLiteralPath(path)
+
 	constraints := &promptConstraints{
-		path:                   path,
+		path:                   escapedPath,
 		outstandingPermissions: outstandingPermissions,
 		availablePermissions:   availablePermissions,
 		originalPermissions:    requestedPermissions,

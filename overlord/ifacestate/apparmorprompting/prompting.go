@@ -463,12 +463,14 @@ func (m *InterfacesRequestsManager) HandleReply(userID uint32, promptID promptin
 	// as check that the path pattern does not match any paths not granted by
 	// the interface.
 	// TODO: Should this be reconsidered?
-	matches, err := constraints.PathPattern().Match(prompt.Constraints.Path())
+	matches, err := constraints.PathPattern().Match(prompt.Constraints.OriginalPath())
 	if err != nil {
 		return nil, err
 	}
 	if !matches {
 		return nil, &prompting_errors.RequestedPathNotMatchedError{
+			// XXX: it's a bit complicated, as we really send Path() but we
+			// check whether it matches against OriginalPath()
 			Requested: prompt.Constraints.Path(),
 			Replied:   constraints.PathPattern().String(),
 		}
