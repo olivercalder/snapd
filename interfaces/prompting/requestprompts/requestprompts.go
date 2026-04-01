@@ -226,7 +226,7 @@ func (pc *promptConstraints) marshalForInterface(iface string) ([]byte, error) {
 	switch iface {
 	case "home":
 		constraintsJSON := &promptConstraintsJSONHome{
-			Path:                 pc.path,
+			Path:                 pc.EscapedPath(),
 			RequestedPermissions: pc.outstandingPermissions,
 			AvailablePermissions: pc.availablePermissions,
 		}
@@ -275,7 +275,7 @@ func (pc *promptConstraints) equals(other *promptConstraints) bool {
 // then affectedByRule is false, and no changes are made to the prompt
 // constraints.
 func (pc *promptConstraints) applyRuleConstraints(constraints *prompting.RuleConstraints) (affectedByRule, respond bool, deniedPermissions []string, err error) {
-	pathMatched, err := constraints.Match(pc.path)
+	pathMatched, err := constraints.Match(pc.Path())
 	if err != nil {
 		// Should not occur, only error is if path pattern is malformed,
 		// which would have thrown an error while parsing, not now.
@@ -341,18 +341,23 @@ func (pc *promptConstraints) buildResponse(deniedPermissions []string) []string 
 	return allowedPerms
 }
 
-// Path returns the path associated with prompt constraints. This is equal to
-// the originally requested path, but with any special path pattern characters
-// escaped by a '\' character.
+// Path returns the path associated with the request to which the receiving
+// prompt constraints apply. This is the literal path, without special path
+// pattern characters escaped. This should be used when matching patterns
+// against prompts.
 func (pc *promptConstraints) Path() string {
 	return pc.path
 }
 
-// OriginalPath returns the path associated with the request to which the
-// receiving prompt constraints apply. This is equal to Path() but with any
-// '\' characters which are used to escape another character removed.
-func (pc *promptConstraints) OriginalPath() string {
-	return patterns.UnescapeLiteralPath(pc.path)
+// EscapedPath returns the path associated with prompt constraints, with any
+// special path pattern characters escaped by a '\' character. This should be
+// used in order to create a path pattern which matches the requested path.
+// Thus, it should also be used when marshalling prompt constraints to send to
+// a prompting client, as clients should be able to reply using the exact path
+// they received in the prompt as the path pattern and have that reply apply to
+// the requested path.
+func (pc *promptConstraints) EscapedPath() string {
+	return patterns.EscapeLiteralPath(pc.path)
 }
 
 // OutstandingPermissions returns the outstanding unsatisfied permissions
@@ -799,10 +804,8 @@ func (pdb *PromptDB) AddOrMerge(metadata *prompting.Metadata, path string, reque
 		pdb.perUser[metadata.User] = userEntry
 	}
 
-	escapedPath := patterns.EscapeLiteralPath(path)
-
 	constraints := &promptConstraints{
-		path:                   escapedPath,
+		path:                   path,
 		outstandingPermissions: outstandingPermissions,
 		availablePermissions:   availablePermissions,
 		originalPermissions:    requestedPermissions,

@@ -172,18 +172,18 @@ func (c component) componentRegex() string {
 	case compAnySingle:
 		return `([^/])` // does escaped '/' (e.g. `\\/`) count as one character?
 	case compLiteral:
-		return `(` + regexp.QuoteMeta(UnescapeLiteralPath(c.compText)) + `)`
+		return `(` + regexp.QuoteMeta(unescapeLiteral(c.compText)) + `)`
 	}
 	return `()`
 }
 
 var escapeFinder = regexp.MustCompile(`\\(.)`)
 
-// UnscapeLiteralPath removes any '\' characters which are used to escape
-// another character. Note that escaped '\' characters are not removed, since
-// they are not acting as an escape character in those instances. That is, `\\`
-// is reduced to `\`.
-func UnescapeLiteralPath(literal string) string {
+// unescapeLiteral removes any '\' characters which are used to escape another
+// character. Note that escaped '\' characters are not removed, since they are
+// not acting as an escape character in those instances. That is, `\\` is
+// reduced to `\`.
+func unescapeLiteral(literal string) string {
 	return escapeFinder.ReplaceAllString(literal, "${1}")
 }
 

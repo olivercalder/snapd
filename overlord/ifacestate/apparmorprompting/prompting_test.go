@@ -378,7 +378,7 @@ func (s *apparmorpromptingSuite) simulateRequest(c *C, reqChan chan *prompting.R
 	c.Check(prompt.PID, Equals, req.PID)
 	c.Check(prompt.Cgroup, Equals, req.Cgroup)
 	c.Check(prompt.Interface, Equals, "home")
-	c.Check(prompt.Constraints.OriginalPath(), Equals, req.Path)
+	c.Check(prompt.Constraints.Path(), Equals, req.Path)
 
 	// Check that we can retrieve that prompt by ID
 	promptByID, err := mgr.PromptWithID(s.defaultUser, prompt.ID, clientActivity)
@@ -437,7 +437,7 @@ func (s *apparmorpromptingSuite) TestHandleReplyUnusualPaths(c *C) {
 
 	for i, testCase := range []struct {
 		originalPath string
-		expectedPath string
+		escapedPath  string
 		pathJSON     string
 	}{
 		// Normal path
@@ -466,8 +466,8 @@ func (s *apparmorpromptingSuite) TestHandleReplyUnusualPaths(c *C) {
 		_, prompt := s.simulateRequest(c, reqChan, mgr, req, false)
 
 		// Validate the paths presented by the prompt constraints
-		c.Assert(prompt.Constraints.Path(), Equals, testCase.expectedPath, Commentf("testCase: %+v", testCase))
-		c.Assert(prompt.Constraints.OriginalPath(), Equals, testCase.originalPath, Commentf("testCase: %+v", testCase))
+		c.Assert(prompt.Constraints.Path(), Equals, testCase.originalPath, Commentf("testCase: %+v", testCase))
+		c.Assert(prompt.Constraints.EscapedPath(), Equals, testCase.escapedPath, Commentf("testCase: %+v", testCase))
 
 		// Marshal the prompt to json so we can check the marshalled path
 		marshalled, err := prompt.MarshalJSON()
@@ -485,12 +485,12 @@ func (s *apparmorpromptingSuite) TestHandleReplyUnusualPaths(c *C) {
 		// expected.
 		constraints, err := prompting.UnmarshalReplyConstraints("home", prompting.OutcomeAllow, prompting.LifespanSingle, "", constraintsJSON)
 		c.Assert(err, IsNil, Commentf("testCase: %+v", testCase))
-		c.Check(constraints.PathPattern().String(), Equals, testCase.expectedPath, Commentf("testCase: %+v", testCase))
+		c.Check(constraints.PathPattern().String(), Equals, testCase.escapedPath, Commentf("testCase: %+v", testCase))
 		// Next, check that the parsed path pattern matches the original path.
 		matches, err := constraints.PathPattern().Match(testCase.originalPath)
 		c.Assert(err, IsNil, Commentf("testCase: %+v", testCase))
 		c.Check(matches, Equals, true, Commentf("testCase: %+v", testCase))
-		matches, err = constraints.PathPattern().Match(prompt.Constraints.OriginalPath())
+		matches, err = constraints.PathPattern().Match(prompt.Constraints.Path())
 		c.Assert(err, IsNil, Commentf("testCase: %+v", testCase))
 		c.Check(matches, Equals, true, Commentf("testCase: %+v", testCase))
 
