@@ -2,17 +2,17 @@ summary: Run the prompting-client integration tests
 
 details: |
     This test checks that the integration test suite from the prompting-client
-    repository continues to pass when run against the the latest snapd.
+    repository continues to pass when run against the latest snapd.
 
 systems:
     - ubuntu-2*
 
-environment:
-    PROMPTING_CI: 1
-
 # Start early as it takes a long time.
 priority: 100
 kill-timeout: 30m
+
+environment:
+    PROMPTING_CI: 1
 
 prepare: |
     if os.query is-ubuntu-lt 24.04 ; then
@@ -38,7 +38,7 @@ prepare: |
     snapcraft pack
     echo "Install the test snap"
     snap install ./*.snap --dangerous
-    TEST_SNAP_NAME="$(find . -name '*.snap' | head -1 | cut -d '/' -f 2 | cut -d '_' -f 1)"
+    TEST_SNAP_NAME="$(gojq --yaml-input --raw-output .name snap/snapcraft.yaml)"
     tests.cleanup defer snap remove --purge "$TEST_SNAP_NAME"
     snap connect "$TEST_SNAP_NAME:camera"
     snap connect "$TEST_SNAP_NAME:audio-record"
@@ -81,18 +81,11 @@ prepare: |
     git diff | cat
 
     echo "Build the integration-tests binary"
-    cargo test --no-run
+    INTEGRATION_TEST_ARTIFACT="$(cargo test --no-run --message-format=json | grep "integration.rs" | gojq --raw-output .executable)"
+    cp "$INTEGRATION_TEST_ARTIFACT" /home/test/run-integration-tests
+    chown test /home/test/run-integration-tests
 
     popd
-
-    for artifact in prompting-client/prompting-client/target/debug/deps/integration* ; do
-        if echo "$artifact" | grep '\.d' ; then
-            continue
-        fi
-        cp "$artifact" /home/test/run-integration-tests
-        break
-    done
-    chown test /home/test/run-integration-tests
 
 execute: |
     tests.exec is-skipped && exit 0
