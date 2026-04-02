@@ -14,21 +14,21 @@ kill-timeout: 30m
 environment:
     PROMPTING_CI: 1
 
-prepare: |
-    if os.query is-ubuntu-lt 24.04 ; then
-        tests.exec skip-test "Prompting is only supported on Ubuntu 24.04 and later" && exit 0
-    fi
+skip:
+  - if: os.query is-ubuntu-lt 24.04
+    reason: Prompting is only supported on Ubuntu 24.04 and later
 
+prepare: |
     echo "Set up the test user"
     tests.session -u test prepare
     tests.cleanup defer tests.session -u test restore
 
     echo "Install snapcraft"
     snap install snapcraft --classic
-    tests.cleanup defer snap remove --purge snapcraft
 
     echo "Install lxd as the build backend for snapcraft"
     "$TESTSTOOLS"/lxd-state prepare-snap
+    tests.cleanup defer "$TESTSTOOLS"/lxd-state undo-mount-changes
 
     echo "Clone the prompting-client repo"
     git clone https://github.com/canonical/prompting-client
@@ -39,7 +39,6 @@ prepare: |
     echo "Install the test snap"
     snap install ./*.snap --dangerous
     TEST_SNAP_NAME="$(gojq --yaml-input --raw-output .name snap/snapcraft.yaml)"
-    tests.cleanup defer snap remove --purge "$TEST_SNAP_NAME"
     snap connect "$TEST_SNAP_NAME:camera"
     snap connect "$TEST_SNAP_NAME:audio-record"
     popd
@@ -63,7 +62,6 @@ prepare: |
     snap set system experimental.user-daemons=true
     tests.cleanup defer snap set system experimental.user-daemons=false
     snap install prompting-client --channel=latest/edge
-    tests.cleanup defer snap remove --purge prompting-client
     snap connect prompting-client:snap-interfaces-requests-control
 
     echo "Enable prompting"
@@ -88,6 +86,4 @@ prepare: |
     popd
 
 execute: |
-    tests.exec is-skipped && exit 0
-
     tests.session -u test exec /home/test/run-integration-tests
