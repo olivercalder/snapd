@@ -244,6 +244,7 @@ func (m *InterfacesRequestsManager) listenerReadyForTheFirstTime() <-chan struct
 func (m *InterfacesRequestsManager) handleRequest(req *prompting.Request) error {
 	if req.UID == 0 {
 		// Deny any request for the root user
+		logger.Debugf("denied request from root user: %s", req.Key)
 		return req.Reply(nil)
 	}
 
