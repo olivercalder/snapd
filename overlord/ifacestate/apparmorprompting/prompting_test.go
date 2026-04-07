@@ -49,6 +49,7 @@ func Test(t *testing.T) { TestingT(t) }
 type apparmorpromptingSuite struct {
 	testutil.BaseTest
 
+	st        *state.State
 	noticeMgr *notices.NoticeManager
 
 	defaultUser uint32
@@ -62,8 +63,8 @@ func (s *apparmorpromptingSuite) SetUpTest(c *C) {
 	dirs.SetRootDir(c.MkDir())
 	s.AddCleanup(func() { dirs.SetRootDir("") })
 
-	st := state.New(nil)
-	s.noticeMgr = notices.NewNoticeManager(st)
+	s.st = state.New(nil)
+	s.noticeMgr = notices.NewNoticeManager(s.st)
 
 	s.defaultUser = 1000
 
@@ -92,7 +93,7 @@ func (s *apparmorpromptingSuite) TestNew(c *C) {
 	_, _, restore := apparmorprompting.MockListener()
 	defer restore()
 
-	mgr, err := apparmorprompting.New(s.noticeMgr)
+	mgr, err := apparmorprompting.New(s.st)
 	c.Assert(err, IsNil)
 
 	select {
@@ -113,7 +114,7 @@ func (s *apparmorpromptingSuite) TestNewErrorListener(c *C) {
 	})
 	defer restore()
 
-	mgr, err := apparmorprompting.New(s.noticeMgr)
+	mgr, err := apparmorprompting.New(s.st)
 	c.Assert(err, ErrorMatches, fmt.Sprintf("cannot register prompting listener: %v", registerFailure))
 	c.Assert(mgr, IsNil)
 }
@@ -130,7 +131,7 @@ func (s *apparmorpromptingSuite) TestNewErrorPromptDB(c *C) {
 	c.Assert(f.Chmod(0o400), IsNil)
 	defer f.Chmod(0o600)
 
-	mgr, err := apparmorprompting.New(s.noticeMgr)
+	mgr, err := apparmorprompting.New(s.st)
 	c.Assert(err, ErrorMatches, "cannot open request prompts backend:.*")
 	c.Assert(mgr, IsNil)
 
@@ -159,7 +160,7 @@ func (s *apparmorpromptingSuite) TestNewErrorRuleDB(c *C) {
 	c.Assert(f.Chmod(0o400), IsNil)
 	defer f.Chmod(0o600)
 
-	mgr, err := apparmorprompting.New(s.noticeMgr)
+	mgr, err := apparmorprompting.New(s.st)
 	c.Assert(err, ErrorMatches, "cannot open request rules backend:.*")
 	c.Assert(mgr, IsNil)
 
@@ -175,7 +176,7 @@ func (s *apparmorpromptingSuite) TestStop(c *C) {
 	_, reqChan, restore := apparmorprompting.MockListener()
 	defer restore()
 
-	mgr, err := apparmorprompting.New(s.noticeMgr)
+	mgr, err := apparmorprompting.New(s.st)
 	c.Assert(err, IsNil)
 
 	promptDB := mgr.PromptDB()
@@ -224,7 +225,7 @@ func (s *apparmorpromptingSuite) TestHandleRequestDenyRoot(c *C) {
 	_, reqChan, restore := apparmorprompting.MockListener()
 	defer restore()
 
-	mgr, err := apparmorprompting.New(s.noticeMgr)
+	mgr, err := apparmorprompting.New(s.st)
 	c.Assert(err, IsNil)
 
 	// Send request for root
@@ -248,7 +249,7 @@ func (s *apparmorpromptingSuite) TestHandleRequestErrors(c *C) {
 	logbuf, restore := logger.MockLogger()
 	defer restore()
 
-	mgr, err := apparmorprompting.New(s.noticeMgr)
+	mgr, err := apparmorprompting.New(s.st)
 	c.Assert(err, IsNil)
 
 	clientActivity := true
@@ -314,7 +315,7 @@ func (s *apparmorpromptingSuite) TestHandleReplySimple(c *C) {
 	_, reqChan, restore := apparmorprompting.MockListener()
 	defer restore()
 
-	mgr, err := apparmorprompting.New(s.noticeMgr)
+	mgr, err := apparmorprompting.New(s.st)
 	c.Assert(err, IsNil)
 
 	req, replyChan := requestWithReplyChan(&prompting.Request{})
@@ -446,7 +447,7 @@ func (s *apparmorpromptingSuite) TestHandleReplyErrors(c *C) {
 	_, reqChan, restore := apparmorprompting.MockListener()
 	defer restore()
 
-	mgr, err := apparmorprompting.New(s.noticeMgr)
+	mgr, err := apparmorprompting.New(s.st)
 	c.Assert(err, IsNil)
 
 	_, prompt := s.simulateRequest(c, reqChan, mgr, &prompting.Request{}, false)
@@ -526,7 +527,7 @@ func (s *apparmorpromptingSuite) testAskWithOutcome(c *C, outcome prompting.Outc
 	logbuf, restore := logger.MockDebugLogger()
 	defer restore()
 
-	mgr, err := apparmorprompting.New(s.noticeMgr)
+	mgr, err := apparmorprompting.New(s.st)
 	c.Assert(err, IsNil)
 	defer func() {
 		c.Check(mgr.Stop(), IsNil)
@@ -636,7 +637,7 @@ func (s *apparmorpromptingSuite) TestAskShutdownBeforeSending(c *C) {
 	_, _, restore := apparmorprompting.MockListener()
 	defer restore()
 
-	mgr, err := apparmorprompting.New(s.noticeMgr)
+	mgr, err := apparmorprompting.New(s.st)
 	c.Assert(err, IsNil)
 
 	const (
@@ -688,7 +689,7 @@ func (s *apparmorpromptingSuite) TestAskShutdownBeforeReply(c *C) {
 	c.Assert(os.MkdirAll(dirs.SnapInterfacesRequestsRunDir, 0o777), IsNil)
 	c.Assert(osutil.AtomicWriteFile(requestMapFilepath, []byte(requestMapping), 0o600, 0), IsNil)
 
-	mgr, err := apparmorprompting.New(s.noticeMgr)
+	mgr, err := apparmorprompting.New(s.st)
 	c.Assert(err, IsNil)
 
 	neverClose := make(chan struct{})
@@ -793,7 +794,7 @@ func (s *apparmorpromptingSuite) TestAskShutdownViaChannelBeforeReply(c *C) {
 	c.Assert(os.MkdirAll(dirs.SnapInterfacesRequestsRunDir, 0o777), IsNil)
 	c.Assert(osutil.AtomicWriteFile(requestMapFilepath, []byte(requestMapping), 0o600, 0), IsNil)
 
-	mgr, err := apparmorprompting.New(s.noticeMgr)
+	mgr, err := apparmorprompting.New(s.st)
 	c.Assert(err, IsNil)
 
 	snapdShuttingDown := make(chan struct{})
@@ -837,7 +838,7 @@ func (s *apparmorpromptingSuite) TestExistingRuleAllowsNewPrompt(c *C) {
 	_, reqChan, restore := apparmorprompting.MockListener()
 	defer restore()
 
-	mgr, err := apparmorprompting.New(s.noticeMgr)
+	mgr, err := apparmorprompting.New(s.st)
 	c.Assert(err, IsNil)
 
 	// Add allow rule to match read permission
@@ -903,7 +904,7 @@ func (s *apparmorpromptingSuite) TestExistingRulePartiallyAllowsNewPrompt(c *C) 
 	_, reqChan, restore := apparmorprompting.MockListener()
 	defer restore()
 
-	mgr, err := apparmorprompting.New(s.noticeMgr)
+	mgr, err := apparmorprompting.New(s.st)
 	c.Assert(err, IsNil)
 
 	// Add rule to match read permission
@@ -932,7 +933,7 @@ func (s *apparmorpromptingSuite) TestExistingRulePartiallyDeniesNewPrompt(c *C) 
 	_, reqChan, restore := apparmorprompting.MockListener()
 	defer restore()
 
-	mgr, err := apparmorprompting.New(s.noticeMgr)
+	mgr, err := apparmorprompting.New(s.st)
 	c.Assert(err, IsNil)
 
 	// Add deny rule to match read permission
@@ -975,7 +976,7 @@ func (s *apparmorpromptingSuite) TestExistingRulesMixedMatchNewPromptDenies(c *C
 	_, reqChan, restore := apparmorprompting.MockListener()
 	defer restore()
 
-	mgr, err := apparmorprompting.New(s.noticeMgr)
+	mgr, err := apparmorprompting.New(s.st)
 	c.Assert(err, IsNil)
 
 	// Add deny rule to match read permission
@@ -1030,7 +1031,7 @@ func (s *apparmorpromptingSuite) TestNewRuleAllowExistingPrompt(c *C) {
 	_, reqChan, restore := apparmorprompting.MockListener()
 	defer restore()
 
-	mgr, err := apparmorprompting.New(s.noticeMgr)
+	mgr, err := apparmorprompting.New(s.st)
 	c.Assert(err, IsNil)
 
 	// Add read request
@@ -1102,7 +1103,7 @@ func (s *apparmorpromptingSuite) TestNewRuleDenyExistingPrompt(c *C) {
 	_, reqChan, restore := apparmorprompting.MockListener()
 	defer restore()
 
-	mgr, err := apparmorprompting.New(s.noticeMgr)
+	mgr, err := apparmorprompting.New(s.st)
 	c.Assert(err, IsNil)
 
 	// Add read request
@@ -1168,7 +1169,7 @@ func (s *apparmorpromptingSuite) TestReplyNewRuleHandlesExistingPrompt(c *C) {
 	_, reqChan, restore := apparmorprompting.MockListener()
 	defer restore()
 
-	mgr, err := apparmorprompting.New(s.noticeMgr)
+	mgr, err := apparmorprompting.New(s.st)
 	c.Assert(err, IsNil)
 
 	// Already tested HandleReply errors, and that applyRuleToOutstandingPrompts
@@ -1263,7 +1264,7 @@ func (s *apparmorpromptingSuite) testReplyRuleHandlesFuturePrompts(c *C, outcome
 	_, reqChan, restore := apparmorprompting.MockListener()
 	defer restore()
 
-	mgr, err := apparmorprompting.New(s.noticeMgr)
+	mgr, err := apparmorprompting.New(s.st)
 	c.Assert(err, IsNil)
 
 	// Already tested HandleReply errors, and that applyRuleToOutstandingPrompts
@@ -1357,7 +1358,7 @@ func (s *apparmorpromptingSuite) TestRequestMerged(c *C) {
 	_, reqChan, restore := apparmorprompting.MockListener()
 	defer restore()
 
-	mgr, err := apparmorprompting.New(s.noticeMgr)
+	mgr, err := apparmorprompting.New(s.st)
 	c.Assert(err, IsNil)
 
 	// Requests with identical *original* abstract permissions are merged into
@@ -1430,7 +1431,7 @@ func (s *apparmorpromptingSuite) TestRules(c *C) {
 
 func (s *apparmorpromptingSuite) prepManagerWithRules(c *C) (mgr *apparmorprompting.InterfacesRequestsManager, rules []*requestrules.Rule) {
 	var err error
-	mgr, err = apparmorprompting.New(s.noticeMgr)
+	mgr, err = apparmorprompting.New(s.st)
 	c.Assert(err, IsNil)
 
 	whenAdded := time.Now()
@@ -1550,7 +1551,7 @@ func (s *apparmorpromptingSuite) TestAddRuleWithIDPatchRemove(c *C) {
 	_, reqChan, restore := apparmorprompting.MockListener()
 	defer restore()
 
-	mgr, err := apparmorprompting.New(s.noticeMgr)
+	mgr, err := apparmorprompting.New(s.st)
 	c.Assert(err, IsNil)
 
 	// Add read request
@@ -1635,7 +1636,7 @@ func (s *apparmorpromptingSuite) TestListenerReadyAfterPromptsReady(c *C) {
 	logbuf, restore := logger.MockDebugLogger()
 	defer restore()
 
-	mgr, err := apparmorprompting.New(s.noticeMgr)
+	mgr, err := apparmorprompting.New(s.st)
 	c.Assert(err, IsNil)
 
 	select {
@@ -1678,7 +1679,7 @@ func (s *apparmorpromptingSuite) TestListenerReadyAfterPromptsNotReady(c *C) {
 	c.Assert(os.MkdirAll(dirs.SnapInterfacesRequestsRunDir, 0o777), IsNil)
 	c.Assert(osutil.AtomicWriteFile(requestMapFilepath, []byte(requestMapping), 0o600, 0), IsNil)
 
-	mgr, err := apparmorprompting.New(s.noticeMgr)
+	mgr, err := apparmorprompting.New(s.st)
 	c.Assert(err, IsNil)
 
 	select {
@@ -1725,7 +1726,7 @@ func (s *apparmorpromptingSuite) TestListenerReadyCausesPromptsHandleReadyingIfN
 	c.Assert(os.MkdirAll(dirs.SnapInterfacesRequestsRunDir, 0o777), IsNil)
 	c.Assert(osutil.AtomicWriteFile(requestMapFilepath, []byte(requestMapping), 0o600, 0), IsNil)
 
-	mgr, err := apparmorprompting.New(s.noticeMgr)
+	mgr, err := apparmorprompting.New(s.st)
 	c.Assert(err, IsNil)
 
 	// Check that the prompts are not ready yet
@@ -1770,7 +1771,7 @@ func (s *apparmorpromptingSuite) TestListenerReadyCausesPromptsHandleReadyingIfO
 	c.Assert(os.MkdirAll(dirs.SnapInterfacesRequestsRunDir, 0o777), IsNil)
 	c.Assert(osutil.AtomicWriteFile(requestMapFilepath, []byte(requestMapping), 0o600, 0), IsNil)
 
-	mgr, err := apparmorprompting.New(s.noticeMgr)
+	mgr, err := apparmorprompting.New(s.st)
 	c.Assert(err, IsNil)
 
 	// Check that the prompts are not ready yet
@@ -1841,7 +1842,7 @@ func (s *apparmorpromptingSuite) TestListenerReadyNotCausesPromptsHandleReadying
 	c.Assert(os.MkdirAll(dirs.SnapInterfacesRequestsRunDir, 0o777), IsNil)
 	c.Assert(osutil.AtomicWriteFile(requestMapFilepath, []byte(requestMapping), 0o600, 0), IsNil)
 
-	mgr, err := apparmorprompting.New(s.noticeMgr)
+	mgr, err := apparmorprompting.New(s.st)
 	c.Assert(err, IsNil)
 
 	// Check that the prompts are not ready yet
@@ -2002,11 +2003,7 @@ func (s *apparmorpromptingSuite) testReadyBlocks(c *C, f func(mgr *apparmorpromp
 	c.Assert(os.MkdirAll(dirs.SnapInterfacesRequestsRunDir, 0o777), IsNil)
 	c.Assert(osutil.AtomicWriteFile(requestMapFilepath, []byte(requestMapping), 0o600, 0), IsNil)
 
-	// Need a new noticeMgr each time so we can re-register backends with the same types
-	st := state.New(nil)
-	noticeMgr := notices.NewNoticeManager(st)
-
-	mgr, err := apparmorprompting.New(noticeMgr)
+	mgr, err := apparmorprompting.New(s.st)
 	c.Assert(err, IsNil)
 
 	startChan := make(chan time.Time)
