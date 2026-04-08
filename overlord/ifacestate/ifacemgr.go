@@ -615,7 +615,7 @@ var interfacesRequestsControlHandlerServicePresent = func(m *InterfaceManager) (
 func (m *InterfaceManager) initInterfacesRequestsManager() error {
 	m.interfacesRequestsManagerMu.Lock()
 	defer m.interfacesRequestsManagerMu.Unlock()
-	interfacesRequestsManager, err := createInterfacesRequestsManager(m.state)
+	interfacesRequestsManager, err := createInterfacesRequestsManager(m.noticeManager)
 	if err != nil {
 		return err
 	}

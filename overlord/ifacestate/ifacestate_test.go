@@ -316,7 +316,7 @@ slots:
 	s.BaseTest.AddCleanup(ifacestate.MockInterfacesRequestsManagerStop(fakeInterfacesRequestsManagerStop))
 }
 
-var fakeCreateInterfacesRequestsManager = func(st *state.State) (*apparmorprompting.InterfacesRequestsManager, error) {
+var fakeCreateInterfacesRequestsManager = func(noticeMgr *notices.NoticeManager) (*apparmorprompting.InterfacesRequestsManager, error) {
 	return nil, nil
 }
 
@@ -397,7 +397,7 @@ func (s *interfaceManagerSuite) TestSmokeAppArmorPromptingEnabled(c *C) {
 	defer restore()
 	createCount := 0
 	fakeManager := &apparmorprompting.InterfacesRequestsManager{}
-	restore = ifacestate.MockCreateInterfacesRequestsManager(func(st *state.State) (*apparmorprompting.InterfacesRequestsManager, error) {
+	restore = ifacestate.MockCreateInterfacesRequestsManager(func(noticeMgr *notices.NoticeManager) (*apparmorprompting.InterfacesRequestsManager, error) {
 		createCount++
 		return fakeManager, nil
 	})
@@ -443,7 +443,7 @@ func (s *interfaceManagerSuite) TestSmokeAppArmorPromptingDisabled(c *C) {
 	defer restore()
 	createCount := 0
 	fakeManager := &apparmorprompting.InterfacesRequestsManager{}
-	restore = ifacestate.MockCreateInterfacesRequestsManager(func(st *state.State) (*apparmorprompting.InterfacesRequestsManager, error) {
+	restore = ifacestate.MockCreateInterfacesRequestsManager(func(noticeMgr *notices.NoticeManager) (*apparmorprompting.InterfacesRequestsManager, error) {
 		c.Errorf("unexpectedly called m.initInterfacesRequestsManager")
 		createCount++
 		return fakeManager, nil
@@ -7438,7 +7438,7 @@ func (s *interfaceManagerSuite) TestInterfacesRequestsManagerNoHandlerService(c 
 
 	createCount := 0
 	fakeManager := &apparmorprompting.InterfacesRequestsManager{}
-	restore = ifacestate.MockCreateInterfacesRequestsManager(func(st *state.State) (*apparmorprompting.InterfacesRequestsManager, error) {
+	restore = ifacestate.MockCreateInterfacesRequestsManager(func(noticeMgr *notices.NoticeManager) (*apparmorprompting.InterfacesRequestsManager, error) {
 		createCount++
 		return fakeManager, nil
 	})
@@ -7485,7 +7485,7 @@ func (s *interfaceManagerSuite) TestInterfacesRequestsManagerHandlerServicePrese
 
 	createCount := 0
 	fakeManager := &apparmorprompting.InterfacesRequestsManager{}
-	restore = ifacestate.MockCreateInterfacesRequestsManager(func(st *state.State) (*apparmorprompting.InterfacesRequestsManager, error) {
+	restore = ifacestate.MockCreateInterfacesRequestsManager(func(noticeMgr *notices.NoticeManager) (*apparmorprompting.InterfacesRequestsManager, error) {
 		createCount++
 		return fakeManager, nil
 	})
@@ -7526,7 +7526,7 @@ func (s *interfaceManagerSuite) TestInitInterfacesRequestsManagerError(c *C) {
 	defer restore()
 
 	createError := fmt.Errorf("custom error")
-	restore = ifacestate.MockCreateInterfacesRequestsManager(func(st *state.State) (*apparmorprompting.InterfacesRequestsManager, error) {
+	restore = ifacestate.MockCreateInterfacesRequestsManager(func(noticeMgr *notices.NoticeManager) (*apparmorprompting.InterfacesRequestsManager, error) {
 		return nil, createError
 	})
 	defer restore()
@@ -7563,7 +7563,7 @@ func (s *interfaceManagerSuite) TestStopInterfacesRequestsManagerError(c *C) {
 	})
 	defer restore()
 	fakeManager := &apparmorprompting.InterfacesRequestsManager{}
-	restore = ifacestate.MockCreateInterfacesRequestsManager(func(st *state.State) (*apparmorprompting.InterfacesRequestsManager, error) {
+	restore = ifacestate.MockCreateInterfacesRequestsManager(func(noticeMgr *notices.NoticeManager) (*apparmorprompting.InterfacesRequestsManager, error) {
 		return fakeManager, nil
 	})
 	defer restore()
