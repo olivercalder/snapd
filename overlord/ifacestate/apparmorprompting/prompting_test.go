@@ -442,22 +442,22 @@ func (s *apparmorpromptingSuite) TestHandleReplyUnusualPaths(c *C) {
 	}{
 		// Normal path
 		{`/foo/bar`, `/foo/bar`, `"/foo/bar"`},
+		{`/foo(bar,baz)`, `/foo(bar,baz)`, `"/foo(bar,baz)"`}, // () are not special, so not escaped
 		// Paths with individual special characters
 		{`/foo*bar`, `/foo\*bar`, `"/foo\\*bar"`},
 		{`/foo?bar`, `/foo\?bar`, `"/foo\\?bar"`},
 		{`/foo\bar`, `/foo\\bar`, `"/foo\\\\bar"`},
-		{`/foo(bar,baz)`, `/foo\(bar,baz\)`, `"/foo\\(bar,baz\\)"`},
 		{`/foo[bar,baz]`, `/foo\[bar,baz\]`, `"/foo\\[bar,baz\\]"`},
 		{`/foo{bar,baz}`, `/foo\{bar,baz\}`, `"/foo\\{bar,baz\\}"`},
 		// Paths with special characters preceded by a literal '\' (as decoy)
 		{`/foo\*bar`, `/foo\\\*bar`, `"/foo\\\\\\*bar"`},
 		{`/foo\?bar`, `/foo\\\?bar`, `"/foo\\\\\\?bar"`},
 		{`/foo\\bar`, `/foo\\\\bar`, `"/foo\\\\\\\\bar"`},
-		{`/foo\(bar,baz\)`, `/foo\\\(bar,baz\\\)`, `"/foo\\\\\\(bar,baz\\\\\\)"`},
+		{`/foo\(bar,baz\)`, `/foo\\(bar,baz\\)`, `"/foo\\\\(bar,baz\\\\)"`}, // () are not special, so not escaped
 		{`/foo\[bar,baz\]`, `/foo\\\[bar,baz\\\]`, `"/foo\\\\\\[bar,baz\\\\\\]"`},
 		{`/foo\{bar,baz\}`, `/foo\\\{bar,baz\\\}`, `"/foo\\\\\\{bar,baz\\\\\\}"`},
 		// Path with all the special characters and some not so special characters
-		{`/foo*?()[]{}'",\`, `/foo\*\?\(\)\[\]\{\}'",\\`, `"/foo\\*\\?\\(\\)\\[\\]\\{\\}'\",\\\\"`},
+		{`/foo*?()[]{}'",\`, `/foo\*\?()\[\]\{\}'",\\`, `"/foo\\*\\?()\\[\\]\\{\\}'\",\\\\"`},
 		// Path with square brackets and unicode characters
 		{`/foo/bar/[アニメ][ゲーム動画].mkv`, `/foo/bar/\[アニメ\]\[ゲーム動画\].mkv`, `"/foo/bar/\\[アニメ\\]\\[ゲーム動画\\].mkv"`},
 	} {

@@ -187,7 +187,7 @@ func unescapeLiteral(literal string) string {
 	return escapeFinder.ReplaceAllString(literal, "${1}")
 }
 
-var escaper = regexp.MustCompile(`([\*\?\(\)\[\]\{\}\\])`)
+var escaper = regexp.MustCompile(`([\*\?\[\]\{\}\\])`)
 
 // EscapeLiteralPath escapes any special characters from the given path.
 func EscapeLiteralPath(path string) string {

@@ -45,16 +45,16 @@ func (s *patternsSuite) TestEscapeLiteralPathMatchesOriginalPath(c *C) {
 		{`/foo*bar`, `/foo\*bar`},
 		{`/foo?bar`, `/foo\?bar`},
 		{`/foo\bar`, `/foo\\bar`},
-		{`/foo(bar,baz)`, `/foo\(bar,baz\)`},
+		{`/foo(bar,baz)`, `/foo(bar,baz)`}, // () are not special, so not escaped
 		{`/foo[bar,baz]`, `/foo\[bar,baz\]`},
 		{`/foo{bar,baz}`, `/foo\{bar,baz\}`},
 		{`/foo\*bar`, `/foo\\\*bar`},
 		{`/foo\?bar`, `/foo\\\?bar`},
 		{`/foo\\bar`, `/foo\\\\bar`},
-		{`/foo\(bar,baz\)`, `/foo\\\(bar,baz\\\)`},
+		{`/foo\(bar,baz\)`, `/foo\\(bar,baz\\)`}, // () are not special, so not escaped
 		{`/foo\[bar,baz\]`, `/foo\\\[bar,baz\\\]`},
 		{`/foo\{bar,baz\}`, `/foo\\\{bar,baz\\\}`},
-		{`/foo*?()[]{}'",\`, `/foo\*\?\(\)\[\]\{\}'",\\`},
+		{`/foo*?()[]{}'",\`, `/foo\*\?()\[\]\{\}'",\\`},
 		{`/foo/bar/[アニメ][ゲーム動画].mkv`, `/foo/bar/\[アニメ\]\[ゲーム動画\].mkv`},
 	} {
 		result := patterns.EscapeLiteralPath(testCase.original)

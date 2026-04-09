@@ -886,22 +886,22 @@ func (s *requestpromptsSuite) TestAddOrMergeEscapesPath(c *C) {
 	}{
 		// Normal path
 		{`/foo/bar`, `/foo/bar`},
+		{`/foo(bar,baz)`, `/foo(bar,baz)`}, // () are not special, so not escaped
 		// Paths with individual special characters
 		{`/foo*bar`, `/foo\*bar`},
 		{`/foo?bar`, `/foo\?bar`},
 		{`/foo\bar`, `/foo\\bar`},
-		{`/foo(bar,baz)`, `/foo\(bar,baz\)`},
 		{`/foo[bar,baz]`, `/foo\[bar,baz\]`},
 		{`/foo{bar,baz}`, `/foo\{bar,baz\}`},
 		// Paths with special characters preceded by a literal '\' (as decoy)
 		{`/foo\*bar`, `/foo\\\*bar`},
 		{`/foo\?bar`, `/foo\\\?bar`},
 		{`/foo\\bar`, `/foo\\\\bar`},
-		{`/foo\(bar,baz\)`, `/foo\\\(bar,baz\\\)`},
+		{`/foo\(bar,baz\)`, `/foo\\(bar,baz\\)`}, // () are not special, so not escaped
 		{`/foo\[bar,baz\]`, `/foo\\\[bar,baz\\\]`},
 		{`/foo\{bar,baz\}`, `/foo\\\{bar,baz\\\}`},
 		// Path with all the special characters and some not so special characters
-		{`/foo*?()[]{}'",\`, `/foo\*\?\(\)\[\]\{\}'",\\`},
+		{`/foo*?()[]{}'",\`, `/foo\*\?()\[\]\{\}'",\\`},
 		// Path with square brackets and unicode characters
 		{`/foo/bar/[アニメ][ゲーム動画].mkv`, `/foo/bar/\[アニメ\]\[ゲーム動画\].mkv`},
 	} {
@@ -1482,7 +1482,7 @@ func (s *requestpromptsSuite) TestHandleNewRule(c *C) {
 		{`/foo[bar]`, `/foo\[bar\]`},
 		{`/foo{bar,baz}`, `/foo\{bar,baz\}`},
 		{`/foo{bar,baz}`, `/foo{xyz,\{bar\,baz\}}`},
-		{`/foo*?()[]{}'",\`, `/foo\*\?\(\)\[\]\{\}'",\\`},
+		{`/foo*?()[]{}'",\`, `/foo\*\?()\[\]\{\}'",\\`},
 		{`/foo/bar/[アニメ][ゲーム動画].mkv`, `/foo/bar/\[アニメ\]\[ゲーム動画\].mkv`},
 	} {
 		s.SetUpTest(c)
@@ -1646,6 +1646,7 @@ func (s *requestpromptsSuite) TestHandleNewRuleNonMatches(c *C) {
 		{`/foo?bar`, `/foo\?bar`, `/fooxbar`},
 		{`/foo?bar`, `/foo\?bar`, `/foo?\?bar`},
 		{`/foo{bar,baz}`, `/foo\{bar,baz\}`, `/foo{bar,baz}`},
+		{`/foo*?()[]{}'",\`, `/foo\*\?()\[\]\{\}'",\\`, `/foo*?()\[\]{}'",\\`}, // () are not special so do not need to be escaped
 		{`/foo*?()[]{}'",\`, `/foo\*\?\(\)\[\]\{\}'",\\`, `/foo*?()\[\]{}'",\\`},
 		{`/foo/bar/[アニメ][ゲーム動画].mkv`, `/foo/bar/\[アニメ\]\[ゲーム動画\].mkv`, `/foo/bar/アニメゲーム動画.mkv`},
 	} {
@@ -2356,7 +2357,7 @@ func (s *requestpromptsSuite) TestPromptMarshalJSON(c *C) {
 			path:             `/home/test/foo*?()[]{}'",\`,
 			requestedPerms:   []string{"write"},
 			outstandingPerms: []string{"write"},
-			expected:         `{"id":"0000000000000004","timestamp":"2024-08-14T09:47:03.350324989-05:00","snap":"firefox","pid":1234,"cgroup":"0::/user.slice/user-1000.slice/user@1000.service/app.slice/some-cgroup.scope","interface":"home","constraints":{"path":"/home/test/foo\\*\\?\\(\\)\\[\\]\\{\\}'\",\\\\","requested-permissions":["write"],"available-permissions":["read","write","execute"]}}`,
+			expected:         `{"id":"0000000000000004","timestamp":"2024-08-14T09:47:03.350324989-05:00","snap":"firefox","pid":1234,"cgroup":"0::/user.slice/user-1000.slice/user@1000.service/app.slice/some-cgroup.scope","interface":"home","constraints":{"path":"/home/test/foo\\*\\?()\\[\\]\\{\\}'\",\\\\","requested-permissions":["write"],"available-permissions":["read","write","execute"]}}`,
 		},
 	} {
 		fakeRequest := &prompting.Request{Key: fmt.Sprintf("fake:%d", reqCount)}
