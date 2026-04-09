@@ -291,10 +291,6 @@ func (s *apparmorpromptingSuite) TestHandleRequestErrors(c *C) {
 		Path:        fmt.Sprintf("/home/test/%d", maxOutstandingPromptsPerUser),
 		Interface:   "home",
 		Permissions: []string{"write"},
-		Reply: func([]string) error {
-			c.Error("unexpectedly called request.Reply()")
-			return errors.New("unexpectedly called request.Reply()")
-		},
 	})
 	reqChan <- req
 	allowedPermissions, err := waitForReply(replyChan)
